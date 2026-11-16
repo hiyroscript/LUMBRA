@@ -1,6 +1,6 @@
 # SHADOW SKIRR — Full Rebrand (from "LUMBRA")
 
-You are working on the game in the **`hiyroscript/shkr`** repository: a single-file rhythm runner (`index.html`, ~2,590 lines, no build step, no dependencies), plus a design-brief file named `max`. The game is currently branded **LUMBRA**. Rebrand it completely to **Shadow Skirr**.
+You are working on the game in the **`hiyroscript/shkr`** repository: a single-file rhythm runner (`index.html`, ~2,590 lines, no build step, no dependencies), plus a design-brief file named `max`. The game is currently branded **Shadow Skirr**. Rebrand it completely to **Shadow Skirr**.
 
 **The repository stays named `shkr`.** Do not rename the repo, do not rename `index.html` or `max`, and do not change any reference to other repos (e.g. `hiyroscript/vl`). This is a name/identity change only: gameplay, levels, physics, audio, art style, layout and UI behaviour must be unchanged.
 

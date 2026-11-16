@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no,maximum-scale=1">
 <meta name="theme-color" content="#FFFFFF">
-<meta name="description" content="LUMBRA — run the shadow, follow the light, keep the beat.">
-<title>LUMBRA</title>
+<meta name="description" content="Shadow Skirr — skirr through the shadow, follow the light, keep the beat.">
+<title>Shadow Skirr</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -58,13 +58,14 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;tou
 .chip.danger{color:var(--fg);border:1px dashed rgba(10,10,16,.6)}
 #home .chip,#home .arrow{background:#fff}
 #home .tag{background:#fff;padding:6px 11px;border-radius:100px;color:var(--dim)}
+#home header .tag{min-width:0;overflow:hidden;text-overflow:ellipsis}   /* long brand tag truncates instead of pushing the settings chip off-screen */
 #home .rail{box-shadow:0 0 0 3px #fff;background:var(--paper-3)}
 #home .pulse i{box-shadow:0 0 0 4px #fff}
 
 /* splash */
 #splash{background:#000;color:#EDEFF2;justify-content:space-between;z-index:60}
 #splash .mid{flex:1;display:flex;align-items:center;justify-content:center;width:100%}
-.splash-title{font-size:clamp(44px,min(15vw,22vh),170px);font-weight:700;letter-spacing:-.045em;line-height:.84;text-transform:uppercase}
+.splash-title{font-size:clamp(44px,min(15vw,22vh),170px);font-weight:700;letter-spacing:-.045em;line-height:.84;text-transform:uppercase;text-align:center}
 .splash-title span,.title span{display:inline-block;animation:letterIn .55s cubic-bezier(.2,.9,.2,1) both}
 #splash .credit{font-family:var(--mono);font-size:clamp(10px,2.9vw,13px);letter-spacing:.32em;
   text-transform:lowercase;opacity:0;animation:creditIn .8s .45s ease forwards;text-align:center;
@@ -238,7 +239,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border:none;border-ra
 <section id="home" class="screen">
   <div class="col">
     <header class="bar">
-      <span class="tag">lumbra &nbsp;·&nbsp; hiyroscript</span>
+      <span class="tag">shadow skirr &nbsp;·&nbsp; hiyroscript</span>
       <nav>
         <button class="chip" data-go="settings">settings</button>
       </nav>
@@ -2222,11 +2223,19 @@ const RENDER = (function () {
   const FIX = typeof FIXES !== "undefined" ? FIXES : {};
 
   /* ---------------- saved state ---------------- */
-  const KEY = "lumbra.v1", DEFAULTS = { music: 0.8, shake: true, sel: 1, unlocked: 1, rec: {} };
+  const KEY = "shadowskirr.v1", LEGACY_KEY = "lumbra.v1", DEFAULTS = { music: 0.8, shake: true, sel: 1, unlocked: 1, rec: {} };
   let S = loadState();
   function loadState() {
-    let raw = {};
-    try { raw = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { raw = {}; }
+    let raw = {}, str = null;
+    try { str = localStorage.getItem(KEY); } catch (e) { str = null; }
+    /* one-time migration from the old save key; the new key wins if both exist */
+    let legacy = null;
+    try { legacy = localStorage.getItem(LEGACY_KEY); } catch (e) { legacy = null; }
+    if (legacy !== null) {
+      if (str === null) { str = legacy; try { localStorage.setItem(KEY, legacy); } catch (e) {} }
+      try { if (localStorage.getItem(KEY) !== null) localStorage.removeItem(LEGACY_KEY); } catch (e) {}
+    }
+    try { raw = JSON.parse(str || "{}") || {}; } catch (e) { raw = {}; }
     const o = {};
     for (const k in DEFAULTS) o[k] = raw[k] !== undefined && raw[k] !== null ? raw[k] : JSON.parse(JSON.stringify(DEFAULTS[k]));
     o.unlocked = Math.max(1, Math.min(N, o.unlocked | 0 || 1)); o.sel = Math.max(1, Math.min(N, o.sel | 0 || 1));
@@ -2577,7 +2586,7 @@ const RENDER = (function () {
   const onResize = function () { clearTimeout(rz); rz = setTimeout(function () { RENDER.resize(); G.snap = true; }, 120); };
   window.addEventListener("resize", onResize);
   window.addEventListener("orientationchange", function () { setTimeout(onResize, 160); });
-  setLetters($("#splashTitle"), "LUMBRA");
+  setLetters($("#splashTitle"), "SHADOW SKIRR");
   let splashDone = false;
   function leaveSplash() {
     if (splashDone) return; splashDone = true;
@@ -2588,7 +2597,8 @@ const RENDER = (function () {
   setTimeout(leaveSplash, 1900);
   $("#splash").addEventListener("pointerdown", function () { audioGesture(); leaveSplash(); });
   requestAnimationFrame(loop);
-  window.__LUMBRA = { G: G, S: function () { return S; }, startLevel: startLevel, keys: keys, getL: getL };
+  window.__SHADOWSKIRR = { G: G, S: function () { return S; }, startLevel: startLevel, keys: keys, getL: getL };
+  window.__LUMBRA = window.__SHADOWSKIRR;   /* legacy alias for old test scripts / console snippets */
 })();
 
 </script>
