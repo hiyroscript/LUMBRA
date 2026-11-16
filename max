@@ -1,159 +1,120 @@
-# LUMBRA — Major Art Style Update: "Fog Silhouette"
+# SHADOW SKIRR — Full Rebrand (from "LUMBRA")
 
-You are working on **LUMBRA**, a single-file rhythm runner (`index.html`, ~2,260 lines, no build step, no dependencies). Rework the game's **visual style** to match the attached reference image: a layered, misty, monochrome silhouette world (in the style of *Limbo* / *Geometry Dash* silhouette levels) in which only the interactive hazards carry color.
+You are working on the game in the **`hiyroscript/shkr`** repository: a single-file rhythm runner (`index.html`, ~2,590 lines, no build step, no dependencies), plus a design-brief file named `max`. The game is currently branded **LUMBRA**. Rebrand it completely to **Shadow Skirr**.
 
-This is an **art-only** update. The gameplay, timing, physics, level charts, music and hitboxes must stay exactly the same.
-
----
-
-## 0. Hard rules (read first)
-
-1. **Do NOT touch the interactive hazards.** Leave all drawing code, colors, glows, animations and sizes for these exactly as they are:
-   - Every entry in `HAZ` (`Bloom`, `Halo`, `Drift`, `Fade`, `Prism`, `Anchor`, `Rail`, `Rift`, `Comet`, `Thermal`, `Mimic`, `Glass`, `Coil`, `Flicker`, `Zenith`) and their `col` values.
-   - In `RENDER.frame`: the **zone fields** block (`for (const z of L.zones)`), the **hazard tiles / coils / rails** block (`q.kind` = `F`, `X`, `1`, `2`, and so on, plus `L.coils` and `L.rails`), and every `case` in the obstacles `switch` **except `case "L"`**: `bl`, `ha`, `ke`, `ga`, `ri`, `co`, `ey`, `em`.
-   - `glow()`, `glowSprite()`, the `COL` map, and the Zenith colored edge line on flipped terrain (`g.fillStyle = COL.Z; …`).
-   - These elements must still be the **only saturated color** in the playfield and must stay drawn **on top of** the new fog layers so they read clearly.
-2. **Do not change `SIM`, `LEVELS`, `HOME`, `FIXES`, `DEMO_SOL`, `MUSIC`, or game logic.** Never change any collision box, `o.x0/x1/y0/y1`, segment top, or timing value. Every visual must line up with the existing collision geometry: spike tips at the same height, ground top edges at exactly `Y(q.top)`.
-3. Keep everything in the single `index.html`. Add no external assets, images, fonts or libraries. Everything is procedural canvas drawing, as it is now.
-4. Performance: the game must hold 60 fps on mid-range phones. Pre-render static layers to offscreen canvases (as `BACKDROPS.strip` already does). Don't add per-frame `shadowBlur` or `filter` on the main canvas. Respect the existing `quality` / `lowQ` fallback (`RENDER.setQuality(0.72)`).
-5. Keep `prefers-reduced-motion` behavior: no new camera sway or parallax bob beyond what already exists when reduced motion is on.
+**The repository stays named `shkr`.** Do not rename the repo, do not rename `index.html` or `max`, and do not change any reference to other repos (e.g. `hiyroscript/vl`). This is a name/identity change only: gameplay, levels, physics, audio, art style, layout and UI behaviour must be unchanged.
 
 ---
 
-## 1. What the reference image shows (target look)
+## 1. Name spellings (use exactly these)
 
-- **Sky:** a soft, near-white sky that brightens toward a hazy horizon (top ≈ `#F4F4F4`, horizon glow ≈ `#FFFFFF`), with no hard edges.
-- **Atmospheric depth:** 4–5 layers of silhouettes that get **lighter and blurrier with distance**. The farthest layer is barely visible pale gray (≈ `#DADADA`) with a soft edge, mid layers are mid-grays (≈ `#BDBDBD`, `#9E9E9E`), and the nearest backdrop layer is dark gray (≈ `#6E6E6E`). Low **fog bands** between layers wash out each layer's base.
-- **Big organic silhouettes:** broad trees with lumpy, cloud-like canopies, thin hanging moss/vines, a faint distant spire, and soft rolling hills. Shapes are **solid fills**, not hatched or outlined.
-- **Foreground terrain:** pure black (`#000`), with a **rough, slightly jagged cliff face** on the vertical sides of raised blocks, and **grass tufts, ferns, small plants and a wooden signpost** silhouetted along the top edges.
-- **Spikes:** pure-black triangles with a **subtle light rim** where they meet the bright background, set in black pits.
-- **Hanging platforms:** black slabs on **chains** with a row of downward spikes underneath and grass tufts on top.
-- **Player:** a solid black stickman with a round head, and a **trail of small black square particles** that drift behind and fade out.
-- **HUD:** a pause button in a rounded square outline at top-left, a long rounded **progress bar** (black fill, white track, thick black outline) across the top, a bold **"42%"** readout, and an **"Attempt 1"** label at top-right, all in a heavy rounded font with a white fill and black outline.
-- **Color:** the only color comes from interactive objects (yellow orb, purple portal, green arrows). The rest is grayscale.
+| Context | Form |
+|---|---|
+| Display title (splash, `<title>`, headings) | `SHADOW SKIRR` (the CSS uppercases anyway; write `Shadow Skirr` where case is preserved, e.g. meta description, docs prose) |
+| Small mono tags (CSS `text-transform:uppercase` applies) | `shadow skirr` |
+| Identifiers / keys (lowercase, no space) | `shadowskirr` |
+| JS global debug handle | `__SHADOWSKIRR` |
 
----
-
-## 2. Current renderer (where to work)
-
-| Area | Location in `index.html` | Current look | Change |
-|---|---|---|---|
-| Sky clear | `RENDER.frame`: `g.fillStyle="#fff"; g.fillRect(...)` | flat white | gradient sky plus horizon glow |
-| Backdrops | `BACKDROPS` module (`G`, `pattern()`, `strip()`), built in `RENDER.buildStrips()` (2 strips, factors `.1` / `.26`) | 2 layers, white with diagonal **screentone hatching** and black outlines | 4–5 solid-gray fog layers |
-| Ambient particles | `AMB` plus the loop after `/* ambient particles */` | black dots, leaves, rain | gray, depth-tinted |
-| Terrain | `/* terrain */` loop plus `groundDetail()` | black slab, **white 2.5px outline**, white detail lines | black slab, rough edges, foliage on top |
-| Props | `prop()` and `L.props` | small black furniture | foliage and signposts per theme |
-| Static spikes and bars | `spike()`, `bar()`, `ink()`; `case "L"` in obstacles | black with **white 0.13 keyline** | black with soft light rim; chains for hanging bars |
-| Player | `stick()` | black stickman with white keyline | solid black silhouette plus square trail |
-| Finish gate | `/* finish gate */` | checkered flag | keep shape; silhouette treatment |
-| HUD | play-screen HTML/CSS (`#hud` or similar) | vl-style chips/bars | outlined progress bar, % and Attempt counter as in the reference |
+Never write it as "ShadowSkirr", "Shadow Skir", "Shadow Skirt" or "Skirr" alone in user-facing text.
 
 ---
 
-## 3. Implementation spec
+## 2. Every place "LUMBRA" appears — change all of them
 
-### 3.1 Global palette and fog helper
-Add one `FOG` config near the top of `RENDER`:
+Search case-insensitively for `lumbra` before and after; the final count in both files must be **zero**.
+
+### `index.html`
+1. **Line ~7 — meta description**
+   `LUMBRA — run the shadow, follow the light, keep the beat.`
+   → `Shadow Skirr — skirr through the shadow, follow the light, keep the beat.`
+   (Keep it one sentence, same rhythm. "Skirr" means to move swiftly/skim — lean into that.)
+2. **Line ~8 — `<title>LUMBRA</title>`** → `<title>Shadow Skirr</title>`
+3. **Line ~241 — home header tag**
+   `<span class="tag">lumbra &nbsp;·&nbsp; hiyroscript</span>`
+   → `<span class="tag">shadow skirr &nbsp;·&nbsp; hiyroscript</span>`
+4. **Line ~2580 — splash title**
+   `setLetters($("#splashTitle"), "LUMBRA");` → `setLetters($("#splashTitle"), "SHADOW SKIRR");`
+5. **Line ~2591 — debug global**
+   `window.__LUMBRA = { ... }` → `window.__SHADOWSKIRR = { ... }`
+   Also add `window.__LUMBRA = window.__SHADOWSKIRR;` on the next line (one-line alias, with a short comment) so any existing test scripts or console snippets keep working.
+6. **Line ~2225 — save key** — see section 3 (needs a migration, not just a rename).
+7. Any remaining comments mentioning LUMBRA → Shadow Skirr.
+
+### `max` (design brief)
+- Replace `LUMBRA` with `SHADOW SKIRR` in the heading and `**LUMBRA**` with `**Shadow Skirr**` in the body. Do not otherwise rewrite the brief.
+
+---
+
+## 3. Save data migration (critical — players must not lose progress)
+
+Current code:
 ```js
-const FOG = {
-  sky: ["#EFEFEF", "#FBFBFB", "#FFFFFF"],      // top → mid → horizon
-  layers: ["#E2E2E2", "#CDCDCD", "#B2B2B2", "#8E8E8E", "#5E5E5E"], // far → near
-  mist: "rgba(255,255,255,0.55)",              // fog band wash
-  ground: "#000000",
-  rim: "rgba(255,255,255,0.22)"                // light rim on black silhouettes
-};
+const KEY = "lumbra.v1", DEFAULTS = { music: 0.8, shake: true, sel: 1, unlocked: 1, rec: {} };
+...
+try { raw = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { raw = {}; }
 ```
-Each level may tint the grays very slightly to keep its identity (for example, Frostbite Ridge cool `#E6EAEE`, Ashfall Caldera warm `#E8E2DE`, Sunken Reef blue-gray). Add an optional 7th entry to each `th` array, or a lookup keyed by level `n` inside `RENDER`, **not** in `LEVELS` gameplay fields. Saturation must stay below about 8% so hazard colors still dominate.
 
-### 3.2 Sky
-Replace the flat white clear with a vertical linear gradient using `FOG.sky`. Add a wide, soft radial "horizon glow" ellipse centered around 60% of the screen height. Cache the gradient and rebuild it only in `resize()`.
-
-### 3.3 Backdrop layers (biggest change)
-Rewrite `BACKDROPS.strip()` so it draws **solid filled silhouettes** instead of screentone:
-- Remove the hatching `pattern()` fill and the black outlines. `F()` fills with the layer's flat gray, `K()` uses a slightly darker shade of the same layer, and `Wt()` uses a slightly lighter shade (windows and highlights become subtle tone shifts, not white).
-- Change `strip()` to take a `tone` (fill color) argument and an optional `softness` value. For far layers, draw at about half resolution and upscale with `imageSmoothingEnabled = true` so they look naturally blurred. A one-time `ctx.filter = "blur(2px)"` on the **offscreen** canvas is also fine, with a feature check for Safari.
-- Bake a **vertical fog gradient** into the bottom 35% of each strip (from transparent to `FOG.mist`) so each layer's base fades into mist.
-- Build **5 strips** instead of 2 in `buildStrips()`:
-  | # | Content | Scale | Parallax factor | Tone |
-  |---|---|---|---|---|
-  | 0 | soft rolling hills + distant spire/landmark (`th[0]`) | `.4` | `.05` | `layers[0]` |
-  | 1 | far version of `th[0]` (forest canopies / theme landmark) | `.5` | `.1` | `layers[1]` |
-  | 2 | mid `th[1]` | `.62` | `.18` | `layers[2]` |
-  | 3 | near `th[1]` (larger, sparser) | `.8` | `.26` | `layers[3]` |
-  | 4 | big foreground-ish canopy trees at the screen edges, partly cut off | `1.0` | `.34` | `layers[4]` |
-  Keep the existing seamless wrap logic (the 3× draw with `-off`). Bump `stripKey` so the cache invalidates.
-- Between strips, draw a full-width **horizontal mist band** (a cached gradient rect) every frame. This is cheap and gives the layered fog look.
-- **New generator: `canopy`.** Add a broad tree generator to `G`: a slightly curved trunk with 2–4 branches, and a canopy made of 8–14 overlapping circles/ellipses clustered at branch tips (lumpy, cloud-like outline), plus 3–6 thin hanging moss strands. Use it for layer 4 on organic levels (Whispering Pines, Paper Kite Plains, Bamboo Monastery, Hanging Gardens, Sunken Reef (as kelp-like), Comet Steppe, Mirage Dunes (as palms)). For urban/industrial levels, layer 4 uses large versions of the level's `th[1]` generator.
-- **Restyle the existing generators** (`peaks`, `pines`, `towers`, `city`, `gears`, `ferris`, `columns`, and so on) to suit solid silhouette fills: drop line-only details thinner than about `.05` units on far layers, and round off sharp corners where it reads as organic.
-
-### 3.4 Ambient particles
-Keep the `AMB` types and motion. Draw particles in the gray of the depth they "belong" to (map `p.z` to `layers[1..3]`). Add an extra low-alpha drifting **fog wisp** type (large soft ellipses, alpha ≈ .08–.15) that is always present, with 4–6 instances moving slowly left. Skip wisps when `quality < 1`.
-
-### 3.5 Terrain (foreground)
-In the `/* terrain */` loop:
-- **Remove the white `strokeRect` outline.** Terrain becomes pure `FOG.ground`.
-- **Rough cliff faces:** on the left and right vertical edges of each segment, where the neighboring segment is lower or there is a gap, draw a jagged edge: a polyline that juts in and out by `0–0.12` units every `0.25` units, seeded with `hsh(x)` so it is stable. It must stay **inside** the collision box (only notch inward, never extend outward past `xa`/`xb`).
-- **Top edge foliage:** along `Y(q.top)`, draw silhouetted grass tufts (clusters of 3–7 thin curved blades, `0.15–0.45` units tall), occasional ferns or broad leaves, and small sprouts. Density and style depend on the theme's `th[2]`:
-  - `grass`, `sand`, `snow`, `tiles`, `bricks` → tufts (snow: smaller, rounder clumps; sand: sparse dry grass)
-  - `roof`, `rivets`, `girder`, `train`, `hull`, `planks` → no grass; small bolts, vents, coils of rope, chimney stubs
-  - `rock`, `obsidian` → pebbles, small crystal stubs
-  - `checker`, `books` → candle stubs, scattered pages
-  Foliage is purely decorative and drawn **above** the top edge, so keep it under 0.45 units and sparse right where the runner lands. Skip it within ±0.6 units of any spike or hazard x-position so silhouettes don't merge.
-- **Light rim:** draw a 1–1.5px `FOG.rim` line along the very top edge and the cliff faces so black terrain separates from dark backdrop layer 4.
-- **Re-skin `groundDetail()`:** the current white interior lines become **very dark gray** (`#141414`–`#1C1C1C`) so the body reads as solid black silhouette with only faint texture, as in the reference.
-- **Flipped (Zenith) terrain:** apply the same treatment mirrored, with foliage hanging downward like roots/moss. Keep the colored `COL.Z` edge line exactly as is.
-
-### 3.6 Props
-Rewrite `prop()` as silhouettes in the spirit of the reference: **wooden signposts** (post + 1–2 angled boards), bushes, ferns, small rocks, mushrooms, lanterns and crates, picked per theme. Keep the existing placement logic in `setLevel()` (quiet chart cells).
-
-### 3.7 Static obstacles (`case "L"` only: spikes, posts, rocks, bars, stalactites, knives)
-These are lethal but **not** interactive hazards. Restyle the art only and keep the exact footprint:
-- Replace `ink()`'s white `0.13` keyline with: solid black fill, plus a thin `FOG.rim` stroke (≈ `.035` units) along the **upper** edges only, giving the soft light edge visible on the spikes in the reference.
-- Default triangle spikes (`tri`): crisp, slightly concave sides, sharp tips, the same `hw`/`hh`. Keep the per-style variants (`thorn`, `shard`, `cactus`, `bone`, `coral`, `flame`, `cone`, `mast`) but render them as silhouettes with the rim.
-- **Hanging bars (`bar()`):** when a bar hangs from the ceiling (the `up = 16` case), draw it as in the reference: a black slab with grass tufts on top, hung from **two chains** (alternating oval links, about `.12` units, black with rim), and, for `pillar`/`beam`/`lintel` styles, a row of downward triangle teeth along the underside **only if those teeth fall inside the existing bar hitbox**. Otherwise make them decorative bevels that stay within the box.
-- The spinning knife (`o.v === "kn"`): black silhouette with rim; keep the rotation.
-
-### 3.8 Player (`stick()`)
-- Remove the white keyline. The stickman becomes a solid black silhouette with a slightly larger round head (about +10%) and thicker limbs (about +15%) for readability against dark layers, plus a 1px `FOG.rim` outline on the head only.
-- **Square pixel trail:** while running and airborne, emit small black squares (0.08–0.16 units) from the hips every ~45 ms. They drift slightly up and back, shrink and fade over about 0.35 s, as in the reference image. Add this as a new `fx` kind (`k: 3`, square, using the existing `fx` loop) so it reuses the pool. Cap it at about 24 live squares, and halve that when `quality < 1`.
-- Keep all animation timing, IK, hang and flip transforms unchanged.
-
-### 3.9 Death, jump and landing FX
-Restyle `burst()` and `emit()` particles to black squares and shards (silhouette style). Keep any FX already colored by a hazard (rings using `COL[...]`) unchanged.
-
-### 3.10 Finish gate
-Keep the position and size. Draw the poles as silhouette posts with rim; keep the checker banner but slightly soften the white squares to `#EDEDED`.
-
-### 3.11 HUD (play screen)
-Restyle the in-game HUD to match the reference **without changing what data it shows or the element IDs that `game.js` writes to**:
-- **Pause button:** rounded square (radius ≈ 10px), 3px black outline, white fill, two black rounded bars.
-- **Progress bar:** long pill across the top center (≈ 55% of the screen width), 3px black outline, white track, solid black fill, with 3px inner padding so the fill has a white gap from the outline.
-- **Percent readout:** right of the bar, heavy rounded type (`font-weight: 900`, system rounded stack), white fill with a 2–3px black text stroke (`-webkit-text-stroke` plus a `paint-order` fallback).
-- **Attempt counter:** "Attempt N" at top-right, same type treatment, slightly smaller. If no attempt label exists yet, bind it to the existing try counter (`G.tryN`). This is display-only.
-- Keep safe-area insets (`--top`, `--pad`) working on notched phones.
-
-### 3.12 Home screen and level select
-The home demo uses `RENDER` with `th: null` / the home theme, so make sure the new fog layers render there too (use the Whispering Pines palette as the default). Level cards and chips may stay as they are; optionally tint their backgrounds with each level's fog palette.
+Change to:
+- `KEY = "shadowskirr.v1"` and add `LEGACY_KEY = "lumbra.v1"`.
+- On load: if `KEY` is absent but `LEGACY_KEY` exists, read the legacy value, use it as `raw`, write it to `KEY`, then `removeItem(LEGACY_KEY)`. If both exist, `KEY` wins and the legacy key is left untouched (or removed — pick removal, it's cleaner).
+- Wrap every storage call in the existing `try/catch` style (private mode / blocked storage must still fall back to `DEFAULTS`).
+- Data shape (`music`, `shake`, `sel`, `unlocked`, `rec`) is unchanged — do not bump `.v1`.
 
 ---
 
-## 4. Per-level identity (keep 30 distinct worlds)
-Use the same fog and silhouette language everywhere, but each level keeps its own silhouettes (`th[0]`, `th[1]`) and a subtle tint. Suggested tints:
-- Cool gray-blue: Frostbite Ridge, Cable Car Summit, Sunken Reef, Storm Lighthouse, Stormfront Armada, Prism Caverns
-- Warm gray: Mirage Dunes, Ashfall Caldera, Iron Foundry, Lantern Bazaar, Lantern Harbor
-- Neutral: everything else
-- **The Last Light:** inverted mood, with a darker sky (`#BEBEBE` → `#E8E8E8`) so the ring-sun reads as a large pale disc.
+## 4. Layout check for the longer name
+
+"LUMBRA" is 6 letters; "SHADOW SKIRR" is 12 characters across two words, so the splash title must still fit.
+
+- `.splash-title` uses `font-size:clamp(44px,min(15vw,22vh),170px)` with `line-height:.84`. `setLetters` already keeps each word `nowrap` and puts a breakable space between words, so on narrow screens it will stack as two lines (`SHADOW` / `SKIRR`) — that is the intended behaviour. Make sure it does:
+  - not overflow horizontally at 320px, 375px, 390px and 430px wide (portrait) — if `SHADOW` overflows at 320px, lower the vw term (e.g. `min(13.5vw,22vh)`) rather than shrinking the desktop max;
+  - fit on one line on landscape/desktop (≥ 900px wide) where space allows;
+  - keep the per-letter `letterIn` stagger animation (second word starts 0.12s later — already handled by `wi * 0.12`).
+- Header tag `shadow skirr · hiyroscript` is longer than before: confirm it doesn't collide with the `settings` chip at 320px. If it does, allow the tag to truncate with `text-overflow:ellipsis` rather than wrapping.
+- Splash credit "a game by hiyroscript" stays as is.
 
 ---
 
-## 5. Acceptance checklist
-- [ ] A side-by-side screenshot of level 1 at around 40% progress clearly reads like the reference: misty layered gray forest, black terrain with grass, black spikes, colored hazards popping.
-- [ ] All 15 interactive hazards look **pixel-identical** to before (compare screenshots of the same tick before and after on levels 1, 9, 15, 21, 29).
-- [ ] No gameplay change: `DEMO_SOL` on the home screen still completes, and every level's stored solution/replay still passes (`SIM.replay`).
-- [ ] Spike tips, ground edges and bar edges sit exactly on the collision boundaries (toggle a temporary debug overlay drawing the hitboxes to verify, then remove it).
-- [ ] 60 fps on a mid-range phone at level 24 (High Steel), with the `lowQ` fallback still triggering and still looking good.
-- [ ] Portrait and landscape both look right, as do `devicePixelRatio` 1, 2 and 3.
-- [ ] No new console errors; the file still works when opened directly from disk.
+## 5. Things that must NOT change
 
-## 6. Deliverable
-An updated `index.html` with the changes above, plus a short summary of the functions you changed and anything you couldn't match exactly.
+- Repo name `shkr`, file names, folder structure.
+- The `hiyroscript` credit and the `hiyroscript/vl` references in comments.
+- Level names (e.g. "Storm Lighthouse", "The Last Light"), level count, level data, physics, input, audio, art palette, theme-color, and all UI copy other than the brand name.
+- Do not add a logo image, favicon, manifest or new files unless asked. (Optional: if a favicon is added, use an inline SVG data URI in `<head>` — no new files.)
+
+---
+
+## 6. Verification checklist (do all before finishing)
+
+1. `grep -n -i lumbra index.html max` → only the intentional legacy references remain: `LEGACY_KEY = "lumbra.v1"` and the `window.__LUMBRA` alias. Nothing user-facing.
+2. `grep -n -i "shadow skirr\|shadowskirr\|SHADOWSKIRR" index.html` shows: meta description, `<title>`, header tag, splash title, storage key, debug global.
+3. Open `index.html` in a browser:
+   - Tab title reads **Shadow Skirr**.
+   - Splash animates **SHADOW SKIRR** letter by letter, then goes to home as before (auto after ~1.9s or on tap).
+   - Home header shows **SHADOW SKIRR · HIYROSCRIPT**.
+4. Migration test in the console:
+   ```js
+   localStorage.clear();
+   localStorage.setItem("lumbra.v1", JSON.stringify({music:0.3,shake:false,sel:4,unlocked:5,rec:{}}));
+   location.reload();
+   // after reload:
+   localStorage.getItem("lumbra.v1")        // null
+   JSON.parse(localStorage.getItem("shadowskirr.v1")).unlocked  // 5
+   ```
+   Level 5 should be unlocked and volume should read 30 in settings.
+5. Fresh-start test: clear storage, reload — defaults apply, no console errors.
+6. Play one level start to finish on desktop and in a 375px-wide mobile viewport: nothing about gameplay, HUD or results cards changed.
+7. `window.__SHADOWSKIRR.G` and `window.__LUMBRA.G` both resolve.
+
+## 7. Commit
+
+Single commit on a new branch (e.g. `rebrand-shadow-skirr`), message:
+```
+Rebrand LUMBRA → Shadow Skirr
+
+- Title, meta description, splash and header tag
+- Save key lumbra.v1 → shadowskirr.v1 with one-time migration
+- Debug global __SHADOWSKIRR (keeps __LUMBRA alias)
+- Splash title sizing checked for the two-word name
+Repo name stays shkr.
+```
