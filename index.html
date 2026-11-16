@@ -167,33 +167,22 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border:none;border-ra
 .cell .stars{font-size:8px;margin:0;gap:2px;min-height:8px}
 .cell.next .star{background:rgba(237,239,242,.3)}
 
-/* HUD — fog silhouette: outlined pause tile, long outlined progress pill, heavy rounded white-on-black type */
+/* HUD */
 #hud{position:fixed;inset:0;z-index:8;display:none;flex-direction:column;pointer-events:none;
-  padding:calc(10px + env(safe-area-inset-top)) var(--pad) calc(16px + env(safe-area-inset-bottom));color:var(--ink);
-  --round:ui-rounded,"SF Pro Rounded","Arial Rounded MT Bold","Nunito","Varela Round",system-ui,-apple-system,"Segoe UI",sans-serif}
+  padding:calc(10px + env(safe-area-inset-top)) var(--pad) calc(16px + env(safe-area-inset-bottom));color:var(--ink)}
 #hud.on{display:flex}
-.hud-top{display:grid;grid-template-columns:1fr minmax(0,55vw) 1fr;align-items:center;gap:clamp(8px,1.6vw,16px)}
-.hud-mid{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}
-.hud-rail{height:clamp(20px,3.4vh,28px);border-radius:100px;background:#fff;border:3px solid #000;padding:3px;width:100%;
-  box-shadow:0 1px 0 rgba(255,255,255,.6)}
-.hud-rail i{display:block;height:100%;width:100%;background:#000;border-radius:100px;clip-path:inset(0 100% 0 0 round 100px)}
-.hud-right{display:flex;gap:12px;align-items:center;justify-content:space-between;min-width:0}
-.hud-num{font-family:var(--round);font-weight:900;color:#fff;-webkit-text-stroke:2px #000;letter-spacing:-.01em;line-height:1;white-space:nowrap}
-@supports (paint-order:stroke fill){.hud-num{-webkit-text-stroke:5px #000;paint-order:stroke fill}}
-#hudPct{font-size:clamp(22px,4.4vh,36px)}
-#hudTry{font-size:clamp(15px,3vh,25px);margin-left:auto}
-.meta{font-family:var(--mono);font-size:clamp(8px,2vw,10px);letter-spacing:.15em;text-transform:uppercase;
-  color:rgba(10,10,16,.62);min-width:0;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  text-shadow:0 0 6px #fff,0 0 2px #fff}
+.hud-rail{height:4px;border-radius:4px;background:#fff;box-shadow:inset 0 0 0 1px var(--ink);overflow:hidden;width:100%}
+.hud-rail i{display:block;height:100%;width:100%;background:var(--ink);transform-origin:left;transform:scaleX(0)}
+.hud-top{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-top:10px}
+.meta{font-family:var(--mono);font-size:clamp(9px,2.3vw,11px);letter-spacing:.15em;text-transform:uppercase;
+  color:rgba(10,10,16,.62);min-width:0;background:#fff;padding:6px 11px;border-radius:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .meta b{color:var(--ink);font-weight:700}
-#pauseBtn{pointer-events:auto;width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:5px;
-  border:3px solid #000;background:#fff;flex:0 0 auto;justify-self:start}
-#pauseBtn i{display:block;width:6px;height:17px;border-radius:3px;background:#000}
-@media (max-width:600px){
-  .hud-top{grid-template-columns:auto 1fr auto}
-  .hud-right{flex-direction:column;align-items:flex-end;gap:4px}
-  #hudTry{margin-left:0}
-}
+.hud-right{display:flex;gap:12px;align-items:center;min-width:0}
+#hudTry{flex:0 0 auto}
+#hudTry b{font-size:1.35em;letter-spacing:-.01em}
+#pauseBtn{pointer-events:auto;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;
+  border:1px solid rgba(10,10,16,.3);color:var(--ink);flex:0 0 auto;background:#fff}
+#pauseBtn::before{content:"";width:4px;height:12px;border-left:3px solid;border-right:3px solid;box-sizing:content-box}
 
 #msBanner{position:fixed;left:50%;top:22%;transform:translate(-50%,-8px);z-index:12;pointer-events:none;
   font-family:var(--mono);font-size:clamp(10px,2.6vw,13px);letter-spacing:.2em;text-transform:uppercase;line-height:2;
@@ -310,15 +299,12 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border:none;border-ra
 </section>
 
 <div id="hud">
+  <div class="hud-rail"><i id="hudFill"></i></div>
   <div class="hud-top">
-    <button id="pauseBtn" aria-label="Pause"><i></i><i></i></button>
-    <div class="hud-mid">
-      <div class="hud-rail"><i id="hudFill"></i></div>
-      <div class="meta" id="hudLevel"></div>
-    </div>
+    <div class="meta" id="hudLevel"></div>
     <div class="hud-right">
-      <div class="hud-num" id="hudPct">0%</div>
-      <div class="hud-num" id="hudTry"></div>
+      <div class="meta" id="hudTry"></div>
+      <button id="pauseBtn" aria-label="Pause"></button>
     </div>
   </div>
 </div>
@@ -1532,7 +1518,7 @@ const RENDER = (function () {
 
   let cv, g, W = 0, H = 0, dpr = 1, sc = 32, px0 = 0, gy = 0, camX = 0, camY = 0, shake = 0, L = null, th = null, seed = 1, lvN = 1, pal = palette(1);
   let home = false, strips = [], stripKey = "", glows = {}, fx = [], amb = [], lastCamX = 0, si = 0, oi = 0, tNow = 0, pulse = 0, quality = 1;
-  let skyCv = null, mistCv = null, wispCv = null, wisps = [], trailT = 0, trailN = 0, zLines = [];
+  let skyCv = null, mistCv = null, wispCv = null, wisps = [], zLines = [];
 
   const hsh = function (n) { let x = Math.imul((n | 0) ^ 0x9E3779B9, 0x85EBCA6B); x ^= x >>> 13; x = Math.imul(x, 0xC2B2AE35); x ^= x >>> 16; return (x >>> 0) / 4294967296; };
   const X = function (wx) { return px0 + (wx - camX) * sc; };
@@ -1620,7 +1606,7 @@ const RENDER = (function () {
     L.fm = fm;
   }
   function setLevel(level, theme, sd) {
-    L = level; th = theme; seed = sd || 1; si = 0; oi = 0; fx.length = 0; camY = 0; lastCamX = 0; trailN = 0;
+    L = level; th = theme; seed = sd || 1; si = 0; oi = 0; fx.length = 0; camY = 0; lastCamX = 0;
     const n = levelOf(theme); if (n !== lvN || !strips.length) { lvN = n; pal = palette(n); }
     const zb = function (x) { for (const z of L.zones) if (z.k === "Z" && x >= z.x0 && x < z.x1) return z.base; return 0; };
     L.segs.forEach(function (s) { if (s.flip) s.fb = zb((s.x0 + s.x1) / 2); });
@@ -2202,27 +2188,13 @@ const RENDER = (function () {
       if (s.hang >= 0 && s.h < 1) g.translate(0, s.h - 1.75);
       stick(V); g.restore();
     }
-    /* square pixel trail from the hips while running or airborne */
-    if (!V.dead && dt > 0 && s.hang < 0 && !s.won) {
-      trailT += dt;
-      if (trailT >= .045) {
-        trailT = 0;
-        if (trailN < (quality < 1 ? 12 : 24)) {
-          if (fx.length > 360) fx.shift();
-          fx.push({ x: V.x - .12, y: V.y + (s.sl && s.gr ? .3 : .82) + (Math.random() - .5) * .2, vx: -.4 - Math.random() * .6, vy: .3 + Math.random() * .6, g: 0, life: 0,
-            max: .3 + Math.random() * .1, sz: .08 + Math.random() * .08, k: 3, col: "#000", rot: 0, vr: 0, flip: fl, fb: fbase });
-        }
-      }
-    }
     /* fx */
-    trailN = 0;
     for (let i = fx.length - 1; i >= 0; i--) {
       const p = fx[i]; p.life += dt; if (p.life >= p.max) { fx.splice(i, 1); continue; }
       p.vy -= p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
       const k = 1 - p.life / p.max;
       at(p.x, p.y, p.flip, p.fb);
-      if (p.k === 3) { trailN++; const z = p.sz * (.35 + .65 * k); g.globalAlpha = Math.min(1, k * 1.4); g.fillStyle = p.col; g.fillRect(-z / 2, -z / 2, z, z); g.globalAlpha = 1; }
-      else if (p.k === 0 && p.col === "#000") { g.rotate(p.rot * .3); const z = (p.sz * k + .01) * 1.6; g.fillStyle = p.col; g.fillRect(-z / 2, -z / 2, z, z); }
+      if (p.k === 0 && p.col === "#000") { g.rotate(p.rot * .3); const z = (p.sz * k + .01) * 1.6; g.fillStyle = p.col; g.fillRect(-z / 2, -z / 2, z, z); }
       else if (p.k === 2) { g.beginPath(); g.arc(0, 0, p.sz * (1 - k * k), 0, TAU); g.lineWidth = .12 * k + .01; g.strokeStyle = p.col; g.globalAlpha = k; g.stroke(); g.globalAlpha = 1; }
       else if (p.k === 1) { g.rotate(p.rot); const z = p.sz * (.4 + k * .6); poly([-z, -z * .5, z * .9, -z * .2, -z * .1, z]); g.fillStyle = p.col; g.fill(); }
       else { g.beginPath(); g.arc(0, 0, p.sz * k + .01, 0, TAU); g.fillStyle = p.col; g.fill(); }
@@ -2424,7 +2396,7 @@ const RENDER = (function () {
   }
   function paintHud() {
     $("#hudLevel").innerHTML = "level <b>" + pad2(G.n) + "</b> &nbsp;·&nbsp; " + G.def.name;
-    $("#hudTry").textContent = "Attempt " + G.tryN;
+    $("#hudTry").innerHTML = "try <b>" + G.tryN + "</b>";
   }
   function startLevel(n) {
     G.n = n; G.def = LEVELS[n - 1]; G.L = getL(n); G.spb = 60 / G.def.mu[0]; G.session = 0;
@@ -2557,13 +2529,7 @@ const RENDER = (function () {
 
   /* ---------------- main loop ---------------- */
   let last = 0, slow = 0, lowQ = false;
-  const hudFill = $("#hudFill"), hudPct = $("#hudPct");
-  let pctShown = -1;
-  function setProgress(f) {
-    f = Math.max(0, Math.min(1, f));
-    hudFill.style.clipPath = "inset(0 " + ((1 - f) * 100).toFixed(2) + "% 0 0 round 100px)";
-    const p = Math.floor(f * 100); if (p !== pctShown) { pctShown = p; hudPct.textContent = p + "%"; }
-  }
+  const hudFill = $("#hudFill");
   function loop(ts) {
     requestAnimationFrame(loop);
     const t = ts / 1000, dt = Math.min(0.05, Math.max(0.001, t - last)); last = t;
@@ -2600,7 +2566,7 @@ const RENDER = (function () {
     RENDER.frame({ s: st, x: x, y: y, beat: G.beat, time: t, pulse: pulse, dead: dead, squash: G.squash, restY: G.restY, snap: G.snap, thermal: thermal,
       demo: G.mode === "home" || G.mode === "launch", noShake: !S.shake }, G.paused ? 0 : dt);
     G.snap = false;
-    if (G.mode === "play" || dead || G.mode === "won") setProgress(x / L.endX);
+    if (G.mode === "play" || dead || G.mode === "won") hudFill.style.transform = "scaleX(" + Math.max(0, Math.min(1, x / L.endX)).toFixed(4) + ")";
     /* drop resolution once if the device cannot hold 60 fps */
     if (G.mode === "play" && !G.paused && !lowQ) { slow = dt > 0.024 ? slow + 1 : Math.max(0, slow - 0.25); if (slow > 70) { lowQ = true; RENDER.setQuality(0.72); RENDER.resize(); } }
   }
