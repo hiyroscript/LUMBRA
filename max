@@ -1,120 +1,150 @@
-# SHADOW SKIRR — Full Rebrand (from "LUMBRA")
+# SHADOW SKIRR — Split `index.html` into multiple files + add a README
 
-You are working on the game in the **`hiyroscript/shkr`** repository: a single-file rhythm runner (`index.html`, ~2,590 lines, no build step, no dependencies), plus a design-brief file named `max`. The game is currently branded **Shadow Skirr**. Rebrand it completely to **Shadow Skirr**.
+You are working in the **`hiyroscript/shkr`** repository. It contains:
 
-**The repository stays named `shkr`.** Do not rename the repo, do not rename `index.html` or `max`, and do not change any reference to other repos (e.g. `hiyroscript/vl`). This is a name/identity change only: gameplay, levels, physics, audio, art style, layout and UI behaviour must be unchanged.
+- `index.html` (~2,606 lines): the whole game, *Shadow Skirr*, a rhythm runner. Inline `<style>`, HTML screens, and one inline `<script>`. No build step, no dependencies other than Google Fonts.
+- `max`: an older design/rebrand brief. **Leave it untouched.**
 
----
-
-## 1. Name spellings (use exactly these)
-
-| Context | Form |
-|---|---|
-| Display title (splash, `<title>`, headings) | `SHADOW SKIRR` (the CSS uppercases anyway; write `Shadow Skirr` where case is preserved, e.g. meta description, docs prose) |
-| Small mono tags (CSS `text-transform:uppercase` applies) | `shadow skirr` |
-| Identifiers / keys (lowercase, no space) | `shadowskirr` |
-| JS global debug handle | `__SHADOWSKIRR` |
-
-Never write it as "ShadowSkirr", "Shadow Skir", "Shadow Skirt" or "Skirr" alone in user-facing text.
+Your job: **split `index.html` into separate CSS and JS files and add a `README.md`, with zero change in behaviour.** This is a pure refactor. The game must look, sound, play, save and load exactly as it does now. If you are ever unsure whether a change alters behaviour, don't make it.
 
 ---
 
-## 2. Every place "LUMBRA" appears — change all of them
+## 1. Hard rules
 
-Search case-insensitively for `lumbra` before and after; the final count in both files must be **zero**.
-
-### `index.html`
-1. **Line ~7 — meta description**
-   `LUMBRA — run the shadow, follow the light, keep the beat.`
-   → `Shadow Skirr — skirr through the shadow, follow the light, keep the beat.`
-   (Keep it one sentence, same rhythm. "Skirr" means to move swiftly/skim — lean into that.)
-2. **Line ~8 — `<title>LUMBRA</title>`** → `<title>Shadow Skirr</title>`
-3. **Line ~241 — home header tag**
-   `<span class="tag">lumbra &nbsp;·&nbsp; hiyroscript</span>`
-   → `<span class="tag">shadow skirr &nbsp;·&nbsp; hiyroscript</span>`
-4. **Line ~2580 — splash title**
-   `setLetters($("#splashTitle"), "LUMBRA");` → `setLetters($("#splashTitle"), "SHADOW SKIRR");`
-5. **Line ~2591 — debug global**
-   `window.__LUMBRA = { ... }` → `window.__SHADOWSKIRR = { ... }`
-   Also add `window.__LUMBRA = window.__SHADOWSKIRR;` on the next line (one-line alias, with a short comment) so any existing test scripts or console snippets keep working.
-6. **Line ~2225 — save key** — see section 3 (needs a migration, not just a rename).
-7. Any remaining comments mentioning LUMBRA → Shadow Skirr.
-
-### `max` (design brief)
-- Replace `LUMBRA` with `SHADOW SKIRR` in the heading and `**LUMBRA**` with `**Shadow Skirr**` in the body. Do not otherwise rewrite the brief.
+1. **Move code, don't edit it.** Every line of CSS and JS goes into its new file byte-for-byte: same text, same order, same comments, same whitespace. No renaming, no reformatting, no linting, no "small cleanups", no modernising (`var`→`let`, arrow functions, etc.), no fixing typos in strings.
+2. **No ES modules, no bundler, no build step, no `package.json`.** Use plain classic `<script src="...">` tags. Reason: the files share top-level globals (`SIM`, `HAZ`, `LEVELS`, `HOME`, `FIXES`, `DEMO_SOL`, `MUSIC`, `BACKDROPS`, `RENDER`). Classic scripts share one global scope, so `const` declared in one file is visible to later files. `type="module"` would break that, break `typeof FIXES !== "undefined"` in `game.js`, and stop the game from working when `index.html` is opened directly from disk (`file://`).
+3. **Do not add `defer`, `async`, or `type="module"`** to the script tags. Put them at the **same position** the inline script is now: at the end of `<body>`, after all the HTML, so the DOM exists when `game.js` runs, as it does today.
+4. **Load order is fixed** and must match the current order inside the inline script:
+   `sim.js` → `levels.js` → `fixes.js` → `demo.js` → `music.js` → `backdrops.js` → `render.js` → `game.js`
+5. **Don't rename** the repo, `index.html`, or `max`. `index.html` stays the entry point at the repo root, so GitHub Pages and "open the file" keep working.
+6. **Keep these exactly as they are** (they look like leftovers but are intentional):
+   - localStorage key `shadowskirr.v1` and the one-time migration from `lumbra.v1` (`LEGACY_KEY`) in `game.js`.
+   - `window.__SHADOWSKIRR` and its legacy alias `window.__LUMBRA`.
+   - The Google Fonts `<link>` tags in `<head>` (Space Grotesk, JetBrains Mono).
+7. Keep everything in `<head>` other than the `<style>` block unchanged (meta tags, title, viewport, preconnects, font link).
 
 ---
 
-## 3. Save data migration (critical — players must not lose progress)
+## 2. Where to cut (the file already marks the seams)
 
-Current code:
-```js
-const KEY = "lumbra.v1", DEFAULTS = { music: 0.8, shake: true, sel: 1, unlocked: 1, rec: {} };
-...
-try { raw = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { raw = {}; }
+The inline script already contains file markers of the form `/* ---- name.js ---- */`. Use them as the split points. Approximate line numbers (confirm with `grep -n '/\* ---- ' index.html` before cutting):
+
+| Lines (approx.) | Content | Goes to |
+|---|---|---|
+| 12–227 | `<style>` … `</style>` (contents only, not the tags) | `css/style.css` |
+| 228–316 | `</head>`, `<body>`, canvas, `#wipe`, all `<section class="screen">` markup | stays in `index.html` |
+| 318–716 | `/* ---- sim.js ---- */` → `const SIM = (function () { … })();` | `js/sim.js` |
+| 717–976 | `/* ---- levels.js ---- */` → `HAZ`, `LEVELS`, `HOME` | `js/levels.js` |
+| 977–979 | `/* ---- fixes.js ---- */` → `const FIXES = {};` | `js/fixes.js` |
+| 980–982 | `/* ---- demo.js ---- */` → `const DEMO_SOL = {…};` (one very long line, copy it whole) | `js/demo.js` |
+| 983–1288 | `/* ---- music.js ---- */` → `const MUSIC = …` | `js/music.js` |
+| 1289–1471 | `/* ---- backdrops.js ---- */` → `const BACKDROPS = …` | `js/backdrops.js` |
+| 1472–2209 | `/* ---- render.js ---- */` → `const RENDER = …` | `js/render.js` |
+| 2210–2603 | `/* ---- game.js ---- */` → the main `(function () { "use strict"; … })();` | `js/game.js` |
+
+Each JS file starts at its marker line and ends on the line before the next marker (the last one ends on the line before `</script>`). Keep the marker comment as the first line of each file.
+
+**Do it with a script, not by hand.** Write a small throwaway script (Python or Node, kept outside the repo or deleted afterwards) that reads `index.html`, slices by the marker lines, and writes each file. Hand-copying a 2,600-line file risks dropping or altering a line, especially the huge `DEMO_SOL` line.
+
+### Resulting layout
+
+```
+shkr/
+├── index.html        ← head + <link rel="stylesheet" href="css/style.css"> + body markup + 8 <script src> tags
+├── css/
+│   └── style.css
+├── js/
+│   ├── sim.js
+│   ├── levels.js
+│   ├── fixes.js
+│   ├── demo.js
+│   ├── music.js
+│   ├── backdrops.js
+│   ├── render.js
+│   └── game.js
+├── README.md
+└── max               ← unchanged
 ```
 
-Change to:
-- `KEY = "shadowskirr.v1"` and add `LEGACY_KEY = "lumbra.v1"`.
-- On load: if `KEY` is absent but `LEGACY_KEY` exists, read the legacy value, use it as `raw`, write it to `KEY`, then `removeItem(LEGACY_KEY)`. If both exist, `KEY` wins and the legacy key is left untouched (or removed — pick removal, it's cleaner).
-- Wrap every storage call in the existing `try/catch` style (private mode / blocked storage must still fall back to `DEFAULTS`).
-- Data shape (`music`, `shake`, `sel`, `unlocked`, `rec`) is unchanged — do not bump `.v1`.
+### New `index.html`
 
----
+- Replace the `<style>…</style>` block with `<link rel="stylesheet" href="css/style.css">` **in the same place** (after the font link), so the cascade order is unchanged.
+- Replace the inline `<script>…</script>` with:
 
-## 4. Layout check for the longer name
-
-"LUMBRA" is 6 letters; "SHADOW SKIRR" is 12 characters across two words, so the splash title must still fit.
-
-- `.splash-title` uses `font-size:clamp(44px,min(15vw,22vh),170px)` with `line-height:.84`. `setLetters` already keeps each word `nowrap` and puts a breakable space between words, so on narrow screens it will stack as two lines (`SHADOW` / `SKIRR`) — that is the intended behaviour. Make sure it does:
-  - not overflow horizontally at 320px, 375px, 390px and 430px wide (portrait) — if `SHADOW` overflows at 320px, lower the vw term (e.g. `min(13.5vw,22vh)`) rather than shrinking the desktop max;
-  - fit on one line on landscape/desktop (≥ 900px wide) where space allows;
-  - keep the per-letter `letterIn` stagger animation (second word starts 0.12s later — already handled by `wi * 0.12`).
-- Header tag `shadow skirr · hiyroscript` is longer than before: confirm it doesn't collide with the `settings` chip at 320px. If it does, allow the tag to truncate with `text-overflow:ellipsis` rather than wrapping.
-- Splash credit "a game by hiyroscript" stays as is.
-
----
-
-## 5. Things that must NOT change
-
-- Repo name `shkr`, file names, folder structure.
-- The `hiyroscript` credit and the `hiyroscript/vl` references in comments.
-- Level names (e.g. "Storm Lighthouse", "The Last Light"), level count, level data, physics, input, audio, art palette, theme-color, and all UI copy other than the brand name.
-- Do not add a logo image, favicon, manifest or new files unless asked. (Optional: if a favicon is added, use an inline SVG data URI in `<head>` — no new files.)
-
----
-
-## 6. Verification checklist (do all before finishing)
-
-1. `grep -n -i lumbra index.html max` → only the intentional legacy references remain: `LEGACY_KEY = "lumbra.v1"` and the `window.__LUMBRA` alias. Nothing user-facing.
-2. `grep -n -i "shadow skirr\|shadowskirr\|SHADOWSKIRR" index.html` shows: meta description, `<title>`, header tag, splash title, storage key, debug global.
-3. Open `index.html` in a browser:
-   - Tab title reads **Shadow Skirr**.
-   - Splash animates **SHADOW SKIRR** letter by letter, then goes to home as before (auto after ~1.9s or on tap).
-   - Home header shows **SHADOW SKIRR · HIYROSCRIPT**.
-4. Migration test in the console:
-   ```js
-   localStorage.clear();
-   localStorage.setItem("lumbra.v1", JSON.stringify({music:0.3,shake:false,sel:4,unlocked:5,rec:{}}));
-   location.reload();
-   // after reload:
-   localStorage.getItem("lumbra.v1")        // null
-   JSON.parse(localStorage.getItem("shadowskirr.v1")).unlocked  // 5
-   ```
-   Level 5 should be unlocked and volume should read 30 in settings.
-5. Fresh-start test: clear storage, reload — defaults apply, no console errors.
-6. Play one level start to finish on desktop and in a 375px-wide mobile viewport: nothing about gameplay, HUD or results cards changed.
-7. `window.__SHADOWSKIRR.G` and `window.__LUMBRA.G` both resolve.
-
-## 7. Commit
-
-Single commit on a new branch (e.g. `rebrand-shadow-skirr`), message:
+```html
+<script src="js/sim.js"></script>
+<script src="js/levels.js"></script>
+<script src="js/fixes.js"></script>
+<script src="js/demo.js"></script>
+<script src="js/music.js"></script>
+<script src="js/backdrops.js"></script>
+<script src="js/render.js"></script>
+<script src="js/game.js"></script>
 ```
-Rebrand LUMBRA → Shadow Skirr
 
-- Title, meta description, splash and header tag
-- Save key lumbra.v1 → shadowskirr.v1 with one-time migration
-- Debug global __SHADOWSKIRR (keeps __LUMBRA alias)
-- Splash title sizing checked for the two-word name
-Repo name stays shkr.
-```
+- Use relative paths (no leading `/`), so it works on GitHub Pages under `/shkr/` and from `file://`.
+- Every other line of `index.html` stays identical.
+
+---
+
+## 3. Prove nothing changed
+
+Do all of these before you call it done, and report the results.
+
+### 3a. Reassembly check (must be exact)
+Write a check that rebuilds the original file from the parts: take the new `index.html`, put the contents of `css/style.css` back between `<style>` and `</style>` where the `<link>` is, and put the 8 JS files, concatenated in load order, back between `<script>` and `</script>` where the `<script src>` tags are. **`diff` the result against the original `index.html` from `git show HEAD:index.html`. It must be empty.** Watch trailing newlines at file boundaries; if the diff only shows newline differences, fix the split, don't ignore them.
+
+Also confirm:
+- `git show HEAD:index.html | grep -c ''` line count equals the reassembled line count.
+- `grep -ci lumbra` across the repo gives the same total as before (2 in `index.html`, which now live in `js/game.js`, plus those in `max`).
+
+### 3b. Syntax check
+Run `node --check` on each `js/*.js` file. They should all pass on their own (they're plain scripts that only reference globals at runtime).
+
+### 3c. Headless run (if a browser is available, e.g. Playwright/Chromium)
+Serve the folder (`python3 -m http.server`) and also open it via `file://`. In both cases:
+- No console errors and no 404s in the network log.
+- The splash shows "SHADOW SKIRR", then the home screen appears after ~2 s.
+- `window.__SHADOWSKIRR` and `window.__LUMBRA` both exist and are the same object.
+- `typeof SIM, HAZ, LEVELS, HOME, FIXES, DEMO_SOL, MUSIC, BACKDROPS, RENDER` are all defined; `LEVELS.length` is unchanged (30).
+- Start level 1 via `__SHADOWSKIRR.startLevel(1)` and let it run a few seconds; no errors.
+- The attract/demo playback on the home screen runs (it replays `DEMO_SOL`).
+- Seed `localStorage["lumbra.v1"]` with a save in a fresh profile, reload, and confirm it migrates to `shadowskirr.v1` exactly as before.
+- Take a screenshot of the splash, the home screen and level 1 at the same viewport size on the **original** `index.html` (from git) and on the new one; they should match.
+
+### 3d. Determinism check (optional but good)
+`SIM` is deterministic and is described as shared with a "Node beatability solver" (not in this repo). In Node, load `js/sim.js` + `js/levels.js` into one `vm` context and, for a few levels, `SIM.compile` the level, `SIM.replay` / `SIM.solve` it, and compare the result to the same calls made against the scripts extracted from the original `index.html`. Results must be identical. Do **not** add `module.exports` or any Node-specific code to the game files to make this work; load them with `vm.runInContext` instead.
+
+If any check fails, fix the split. Never change game code to make a check pass.
+
+---
+
+## 4. Write `README.md`
+
+Accurate, concise, based only on what is actually in the code (read it; don't invent features). Include:
+
+1. **Title + one-line pitch**: *Shadow Skirr*, a rhythm runner by hiyroscript where the music and the level are the same thing.
+2. **Play**: open `index.html` in a browser, or use the GitHub Pages URL if Pages is enabled (check repo settings; if you can't tell, leave a placeholder line the owner can fill in, clearly marked). No install, no build.
+3. **Controls**: read the input code in `js/game.js` (keyboard keys, touch/pointer, pause) and list the real bindings. Don't guess.
+4. **Features**: 30 levels plus the home screen, each with its own generated soundtrack (Web Audio, no audio files, no sound effects); the hazards listed in `HAZ` (Bloom, Halo, Drift, Fade, Prism, Anchor, Rail, Rift, Comet, Thermal, Mimic, Glass, Coil, Flicker, Zenith) and the level each is introduced on; star ratings / records, rebirth, settings (music volume, screen shake), reduced-motion support, progress saved in `localStorage`. Verify each item in the code before listing it.
+5. **Project structure**: the file tree above with one line per file saying what it does (take the wording from each file's header comment).
+6. **How it works (short)**: fixed-timestep deterministic sim measured in beats (4 world units per beat, 96 ticks per beat), so levels play the same at any tempo; levels are written as compact chart strings; the soundtrack's lead plays on the half-beats where the level asks for an action.
+7. **Development notes**:
+   - Script load order matters and why (shared globals, classic scripts).
+   - Don't convert to ES modules without a local server and refactoring the globals.
+   - Save key `shadowskirr.v1`; old `lumbra.v1` saves migrate automatically.
+   - Debug handle: `window.__SHADOWSKIRR` (`G`, `S()`, `startLevel(n)`, `keys`, `getL`), with `__LUMBRA` kept as a legacy alias.
+   - Fonts come from Google Fonts; offline it falls back to system fonts.
+8. **Credits**: a game by hiyroscript. Don't add a license section unless a LICENSE file exists.
+
+No badges, no emojis, no marketing fluff.
+
+---
+
+## 5. Deliver
+
+- Work on a new branch (e.g. `split-into-files`), one commit (or two: split, then README).
+- Open a PR. In the description: the new file tree, the reassembly-diff result (empty), the `node --check` results, the headless-run results and screenshots if you took them, and an explicit statement that no game code was modified, only moved.
+- Delete any helper scripts you used for splitting/verification, or keep them out of the repo.
+
+**Definition of done:** reassembling the parts gives a file identical to the original `index.html`, the game runs from both `file://` and a local server with no console errors, and `README.md` exists and is accurate.
