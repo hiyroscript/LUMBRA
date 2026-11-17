@@ -23,7 +23,7 @@ On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts th
 
 - 30 levels plus a home screen, each with its own soundtrack generated live with Web Audio. There are no audio files and no sound effects. The music is the only sound in the game.
 - The home screen plays an attract-mode demo run behind the menu.
-- 15 hazards, each introduced on its own level:
+- 15 hazards, each introduced on its own level. How each one works is described in [Hazards](#hazards).
 
   | Level | Hazard | Level | Hazard | Level | Hazard |
   |---|---|---|---|---|---|
@@ -38,6 +38,100 @@ On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts th
 - Settings: music volume, screen shake on/off, and reset all progress.
 - Reduced motion: with `prefers-reduced-motion: reduce`, the play button's pulse animation, the foliage sway and the drifting fog wisps are turned off.
 - Progress and settings are saved in `localStorage`.
+
+## Hazards
+
+Everything in the game is timed in beats, so the timings below hold at every tempo. Touching anything deadly, or falling into a pit, sends you back to the start of the level for a new try.
+
+### The basics
+
+- **Jump** keeps you in the air for one beat and lifts your feet to about one and a half times your height. A press up to 0.2 beats before you land still counts, and so does one up to 0.15 beats after you run off a ledge.
+- **Slide** lasts at least a quarter of a beat, and you stay down while something is still overhead.
+- **Dive:** slide while you are in the air and you fall three times as fast. It cuts a jump short, and it is how you break Glass.
+- **Plain obstacles** take the colours of each level's scenery:
+  - spikes, wide spikes and tall spikes: jump them;
+  - bars hanging just above the ground: slide under them;
+  - walls that hang down to just above your head: stay on the ground and don't jump;
+  - pits: jump them;
+  - steps up and down. Running into the face of a step up kills you, so jump onto it. The tallest steps are too high for a plain jump and always come with a Bloom, Halo, Rift or Coil to get you up.
+
+Every hazard below has its own colour, so you can always tell it from the scenery. A **zone** hazard (Drift, Anchor, Thermal, Zenith) is a tinted band with dashed edges: its rules apply while you are inside it.
+
+### Bloom (level 1, red)
+
+A bounce pad on the ground. Run onto it and it throws you about twice as high as a normal jump, for about one and a half beats in the air. Blooms sit in front of wide pits and tall steps. Jumping over one skips the bounce, and it never hurts you. If you are still holding slide when it launches you, you won't dive until you let go.
+
+### Halo (level 3, cyan)
+
+A ring floating at head height. Jump through it and you get one extra jump in mid-air, which you keep until you land. Press jump again in the air to use it. A Halo you touch while running on the ground is wasted, because landing clears the extra jump.
+
+### Drift (level 5, purple zone, rising bubbles)
+
+Low gravity. Jumps last one and a half beats instead of one and go about a third higher. The pits and obstacles inside are spaced for these longer, floatier jumps.
+
+### Fade (level 7, green)
+
+Stepping-stone tiles over a pit. A tile starts to fade the moment you touch it and is gone a little under half a beat later (0.42 beats). Land and jump straight on. Tiles you never touch stay put. A row of tiles fades all at once, counted from when you first touch it.
+
+### Prism (level 9, orange)
+
+A spinning crystal at head height, followed by a gate: a tall column of orange diamonds that you can't jump over. Run or jump through the crystal and the gate opens as you reach it. Reach the gate without the crystal and it kills you. Sliding under the crystal misses it.
+
+### Anchor (level 11, blue zone, falling chevrons)
+
+Heavy gravity. Jumps last only half a beat and reach about 70% of the usual height. The obstacles inside are packed tight to match: narrow pits and small spikes, often one every half beat.
+
+### Rail (level 13, lime)
+
+A bar overhead that you can hang from.
+
+- Jump and keep holding jump: near the top of the jump you grab the rail and ride along it.
+- Hold jump to keep hanging, and let go to drop. You also drop at the end of the rail.
+- Hold slide while hanging to pull your legs up over tall posts.
+- You can't hang past a spiked blade on the rail. Let go before it, run under it on the ground, then jump and grab the rail again.
+
+### Rift (level 15, magenta)
+
+A portal at head height with a dashed line up to its exit. Run or jump into it and it lifts you straight up to about twice the height of a jump, where you hang still for an instant and then fall. Rifts get you onto ledges too tall to jump. Sliding under one misses it, and each Rift works once per try.
+
+### Comet (level 17, yellow)
+
+A comet floating just above head height. Catch it in mid-air and you glide level for one beat, carried across pits without falling. Slide to drop out of the glide early, and landing ends it. It only works in the air: running under it does nothing.
+
+### Thermal (level 19, orange-red zone, rising wavy lines)
+
+An updraft that carries you up on its own, to almost twice the height of a jump. Jump does nothing inside it, and holding slide makes you sink (or slide along the ground if you are already down). Inside, rocks rise from the ground and blocks hang from above. Float over the rocks, and sink under the blocks.
+
+### Mimic (level 21, blue)
+
+An eye on a post, followed by a beam.
+
+- When you pass the eye, it records whether you were in the air (more than about half your height off the ground) or on the ground. Its pupil looks up or down to show what it saw.
+- The beam then fires at the height where you were:
+  - if you passed the eye on the ground, the beam runs along the ground, and you must jump over it;
+  - if you passed the eye in the air, the beam fills the space above head height, and you must stay on the ground.
+- In short: whatever you did at the eye, do the opposite at the beam. Until the eye has seen you, the beam's path is a dashed line.
+
+### Glass (level 23, green)
+
+A glass pane high above the ground, often level with the ground you just came from. You can run across it, and bumping its underside while jumping just stops you. To get below it, dive onto it: slide in mid-air as you land, and it shatters and you fall through. Running into its edge side-on kills you, like a wall.
+
+### Coil (level 25, teal)
+
+A spring on the ground.
+
+- Slide onto it and keep holding slide to charge it. The spring squeezes down as it charges.
+- Let go of slide, or slide off its end, to launch.
+- You need at least 0.15 beats of charge. A full beat of charge gives the biggest launch, as high as a Bloom bounce.
+- Jumping off the Coil instead throws the charge away.
+
+### Flicker (level 27, pink)
+
+Floor tiles in two sets. One set is solid and the other is only a dashed outline that you fall through. Every jump you make swaps the sets, including a Halo's mid-air jump. Bloom bounces, Coil launches and Rift lifts don't swap them. Count your jumps so the tile you land on is solid when you get there.
+
+### Zenith (level 29, indigo zone, upward chevrons)
+
+Gravity flips. When you enter the zone you are thrown up onto the ceiling and run along it upside down, with the level mirrored above you. Jump and slide still work relative to you: jump pushes you away from the ceiling. Leaving the zone flips you back down. A gap in the ceiling is a pit like any other.
 
 ## Project structure
 
