@@ -4,8 +4,13 @@
    silhouettes that fade with distance, pure black terrain with rough cliff
    faces and foliage, a solid black stickman, and colour only where a hazard
    lives. Hazards are drawn last-but-player, on top of every fog layer.
+   RENDER draws the game on the full-screen canvas. RENDER.create(fit) makes
+   another, independent renderer (its own canvas, camera, particles and runner
+   animation) for a fixed-size view such as the hazard preview in a card:
+   fit = { w, h (CSS px), dpr, sc (px per unit), px, gy (runner x and ground y
+   as shares of w and h), top (px kept clear above the runner's head) }.
    ========================================================================== */
-const RENDER = (function () {
+const RENDER = (function make(fit) {
   "use strict";
   const TAU = Math.PI * 2, CH = SIM.CH;
   const COL = {}; HAZ.forEach(function (h) { COL[h.k] = h.col; }); COL["2"] = COL["1"]; COL.em = COL.ey; COL.ga = COL.ke;
@@ -64,14 +69,15 @@ const RENDER = (function () {
 
   function resize(canvas) {
     cv = canvas || cv; if (!cv) return;
-    W = window.innerWidth; H = window.innerHeight;
+    W = fit ? fit.w : window.innerWidth; H = fit ? fit.h : window.innerHeight;
     const mobile = Math.min(W, H) < 700;
-    dpr = Math.min(window.devicePixelRatio || 1, mobile ? 2 : 2) * quality;
+    dpr = fit ? fit.dpr : Math.min(window.devicePixelRatio || 1, mobile ? 2 : 2) * quality;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
     g = cv.getContext("2d", { alpha: false });
-    sc = Math.max(W / 26, Math.min(W / 15, H / 14));
+    sc = fit ? fit.sc : Math.max(W / 26, Math.min(W / 15, H / 14));
     const portrait = H > W;
-    px0 = W * (home ? .2 : portrait ? .24 : .28); gy = H * (home ? (portrait ? .8 : .84) : portrait ? .66 : .72);
+    if (fit) { px0 = W * fit.px; gy = H * fit.gy; }
+    else { px0 = W * (home ? .2 : portrait ? .24 : .28); gy = H * (home ? (portrait ? .8 : .84) : portrait ? .66 : .72); }
     stripKey = ""; if (th) buildStrips();
   }
   /* which generators feed each of the five layers */
@@ -904,7 +910,7 @@ const RENDER = (function () {
     /* camera height: rest on the ground the runner last stood on, keep them in frame */
     const act = fl ? 2 * fbase + CH - V.y - s.h : V.y;
     if (V.restY !== undefined) camY += (V.restY - camY) * Math.min(1, dt * 3.2);
-    const top = (gy - 70) / sc - 2.2; if (act - camY > top) camY = act - top; if (act - camY < -1.5) camY = act + 1.5;
+    const top = (gy - (fit ? fit.top : 70)) / sc - 2.2; if (act - camY > top) camY = act - top; if (act - camY < -1.5) camY = act + 1.5;
     if (V.snap) camY = V.restY || 0;
     shake = Math.max(0, shake - dt * 4.5);
     const shx = V.noShake ? 0 : (Math.random() - .5) * shake * 14, shy = V.noShake ? 0 : (Math.random() - .5) * shake * 14;
@@ -1118,6 +1124,7 @@ const RENDER = (function () {
     if (V.flash > 0) { g.fillStyle = "rgba(0,0,0," + (V.flash * .12) + ")"; g.fillRect(-20, -20, W + 40, H + 40); }
   }
   return { resize: resize, setLevel: setLevel, frame: frame, emit: emit, ring: ring, burst: burst, shake: addShake, cue: cue, COL: COL,
-    setHome: function (v) { if (home !== v) { home = v; if (cv) resize(); } }, get W() { return W; }, get H() { return H; }, setQuality: function (q) { quality = q; } };
+    setHome: function (v) { if (home !== v) { home = v; if (cv) resize(); } }, get W() { return W; }, get H() { return H; }, setQuality: function (q) { quality = q; },
+    create: function (f) { return make(f); } };
 })();
 
