@@ -11,6 +11,8 @@ From one source tree, produce **two builds automatically on every push to `main`
 
 Only the developer build may have the developer features. That is the most important requirement in this task.
 
+**The release build must always, automatically play against the source.** Every time the release is built (every push to `main` and every manual run), the workflow must automatically prove two things before a zip is made: (1) the release **plays exactly the same** as the source game, and (2) the release contains **no dev features at all**. If either check fails, the workflow fails and **no zip and no release are published**. This gate is never optional. There's no flag to skip it, it isn't `continue-on-error`, and it isn't a separate job that can be bypassed. See sections 4 and 6.
+
 **The developer build needs no build step.** GitHub Pages keeps serving the `main` branch root exactly as it does now, so the repo itself *is* the developer version. Don't add a Pages deploy workflow and don't change the Pages settings. Only the release build is generated: it's the repo with the dev code stripped out.
 
 ## Current code you must know about
@@ -82,7 +84,7 @@ Pin action versions as above. Keep the workflow readable with comments. **No Pag
 
 ### 6. Release-vs-source parity check: `tools/parity-check.js` (Node, no dependencies)
 
-The release must play **exactly** like the source, minus the dev code. Add a check that proves it and fails the workflow if it doesn't. It runs on every build, **before** the zip is made. Use only built-in Node modules (`fs`, `path`, `vm`, `crypto`), since there's no `package.json`.
+The release must play **exactly** like the source, minus the dev code. This check runs **automatically on every release build**, in the same job, **after** `build-release.sh` (whose guard proves no dev features are present) and **before** the zip is made. If it fails, no zip is made. It's also what you run locally to verify a build. Use only built-in Node modules (`fs`, `path`, `vm`, `crypto`), since there's no `package.json`.
 
 `node tools/parity-check.js <repo-root> <release-dir>` does two things:
 
