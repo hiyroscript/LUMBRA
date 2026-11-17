@@ -83,7 +83,7 @@ const MUSIC = (function () {
 
   function build(c) {
     ctx = c;
-    master = ctx.createGain(); master.gain.value = vol * .8;
+    master = ctx.createGain(); master.gain.value = vol * .7;
     comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -16; comp.ratio.value = 5; comp.attack.value = .004; comp.release.value = .18; comp.knee.value = 8;
     master.connect(comp); comp.connect(ctx.destination);
@@ -186,8 +186,8 @@ const MUSIC = (function () {
   function drum(ch, t, v, kit) {
     switch (ch) {
       case "x": tone(t, kit >= 6 ? 170 : 150, 44, .09, kit === 6 || kit === 3 ? .34 : .24, .9 * v); nz(t, .012, "highpass", 2500, .7, .18 * v); break;
-      case "t": tone(t, 150, 78, .07, .3, .7 * v); break;
-      case "T": tone(t, 300, 170, .06, .2, .5 * v); break;
+      case "t": tone(t, 150, 78, .07, .3, .55 * v); break;
+      case "T": tone(t, 300, 170, .06, .2, .4 * v); break;
       case "w": tone(t, 1900, 1700, .01, .03, .16 * v, "square"); break;
       case "W": tone(t, 1300, 1200, .01, .035, .16 * v, "square"); break;
       case "r": tone(t, 1750, 1650, .01, .03, .2 * v, "triangle"); nz(t, .03, "bandpass", 2400, 2, .16 * v); break;
@@ -265,9 +265,9 @@ const MUSIC = (function () {
       /* the drop: energy 4 always gets a kick on every beat and an open hat on every off-beat, and the first bar of a
          run of 4s lands with a crash and a sub boom */
       if (e >= 4) {
-        if (pos % 4 === 0 && K.k[lv][pos] === ".") drum("x", t, .85, S.kit);
+        if (pos % 4 === 0 && K.k[lv][pos] === ".") drum("x", t, .7, S.kit);
         if (pos % 4 === 2 && K.h[lv][pos] !== "O") drum("O", ts, .6, S.kit);
-        if (pos === 0 && (bar === 0 || S.energy[bar - 1] < 4)) { drum("C", t, 1, S.kit); tone(t, 90, 32, .5, .7, .9); }
+        if (pos === 0 && (bar === 0 || S.energy[bar - 1] < 4)) { drum("C", t, .85, S.kit); tone(t, 90, 32, .5, .7, .55); }
       }
     }
     /* the build: the bar before a drop rises and rolls, unless a combo cue already does */
@@ -384,7 +384,7 @@ const MUSIC = (function () {
   return {
     init: init, makeSong: makeSong, start: start, stop: stop, beat: beat, schedule: schedule, renderStats: renderStats,
     get ctx() { return ctx; }, get song() { return song; }, get t0() { return t0; },
-    setVol: function (v) { vol = v; if (master) master.gain.setTargetAtTime(v * .8, ctx.currentTime, .03); },
+    setVol: function (v) { vol = v; if (master) master.gain.setTargetAtTime(v * .7, ctx.currentTime, .03); },
     resume: function () { if (ctx && ctx.state !== "running") return ctx.resume(); },
     suspend: function () { if (ctx && ctx.state === "running") return ctx.suspend(); }
   };
