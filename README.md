@@ -23,6 +23,7 @@ On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts th
 
 - 30 levels plus a home screen, each with its own soundtrack generated live with Web Audio. There are no audio files and no sound effects. The music is the only sound in the game.
 - Every level lasts exactly one minute, and each one is measurably harder than the one before: difficulty rises by a steady 8 % per level, from a gentle first minute to a level 30 about 9.3 times harder (see [Difficulty](#difficulty)). Levels 1-9 teach, 10-20 mix, 21-30 stack.
+- No dead air: obstacles come in clusters that follow the music, not one at a time. Level 1 already puts something in front of you every beat or two (it is easy because the inputs are single, generously timed jumps and slides, not because the ground is empty), and the last levels never leave more than two beats between obstacles, apart from one short breather before the climax. Steps, walls and low ceilings fill the ground between the obstacles that need an input. Each level reads as clear sections: intro, build, first peak, a breather, the climax and a short outro.
 - Later levels keep using every hazard the earlier ones introduced and often combine two or three at once: a Halo over a row of Fade tiles, Glass you dive through onto a Coil, a Mimic eye that reads your height inside a Thermal. Level 30 uses all 15. The music marks each combo with a short riser in the bar before it, and every special-hazard action (Bloom, Fade, Glass, Flicker, Mimic) plays an octave higher with its own glassy tone.
 - The home screen plays an attract-mode demo run behind the menu.
 - The runner is animated procedurally and stays in step with the music. The run cycle is locked to the beat: a foot strikes on every beat and half-beat, and the planted foot never slides along the ground. Jumps get a take-off crouch and a landing crouch, and a Halo air jump is a tucked front flip. Slides and dives curl into a spinning ball, and charging a Coil revs it up. Moving between poses blends smoothly instead of snapping.
@@ -161,11 +162,24 @@ D = aps · (1 + 0.2·mech) · (1 + 0.15·combo/10) · (1 + 0.3·(0.3 − slack)/
 
 Level 1 sets the anchor, and every level n is built to land within ±4 % of `D(1) · 1.08^(n−1)`, so D rises strictly from level to level and level 30 is about 9.3 times level 1. The ratio 1.08 puts the difficulty bands where they belong: levels 1-9 are easy (1× to 2×), 10-20 medium (2× to about 4.5×), 21-30 hard (4.7× to 9.3×). `tools/difficulty.js` explains the weights.
 
+### Density
+
+Every level is also kept busy. Counting the chart the way `tools/density.js` does (each chart character is half a beat; obstacle characters are the non-`.` characters of the terrain row; a cell is busy when its terrain is not `.` or its overlay holds a hazard object):
+
+| Levels | Obstacle characters per bar | Longest gap between busy cells after the 2-bar intro |
+|---|---|---|
+| 1-9 | 2.0 to 2.5 | 4 beats |
+| 10-20 | 2.5 to 3.5 | 3 beats |
+| 21-30 | 3.5 to 4.5 | 2 beats, except one breather bar (up to 5 beats) before the climax |
+
+The empty bar `i` only opens a level (the first 2 bars hold no hazard) and, on levels 21-30, makes that one breather. Denser charts mean more required actions and less rest on every level, which is why level 1 now scores D ≈ 0.60 instead of 0.35: the whole curve scaled up with it, and the 8 % steps stayed. The later levels get their extra difficulty mostly from mixing hazards (Anchor runs with a Prism inside, a Mimic eye in a Thermal, Glass dropping onto a Coil) rather than from even more obstacles.
+
 Every level is also checked for fairness: it must solve with a safety margin (0.12 on level 1, 0.08 on 2-10, 0.06 on 11-20, 0.04 on 21-30) and, on levels 1-20, with inputs changed only every 12 ticks, so no move needs a window shorter than two solver decisions.
 
 ```sh
 node tools/difficulty.js          # the D table: every level's terms, D, target and band (10-20 or 1-30 also work)
-node tools/check-levels.js        # every rule: 60 s, solvable and fair, hazard reuse, obstacle variety, the curve
+node tools/density.js             # instant: obstacle characters per bar, median and longest gaps, empty bars, against the bands
+node tools/check-levels.js        # every rule: 60 s, solvable and fair, hazard reuse, obstacle variety, the curve, density
 ```
 
 `check-levels.js` exits non-zero on any failure and runs on every release build, before the build step. It takes several minutes, because it solves every level several times.
@@ -192,7 +206,8 @@ shkr/
 │   ├── build-release.sh   makes the release: the repo minus the developer code, with a guard against leaks
 │   ├── parity-check.js    proves the release plays exactly like the source
 │   ├── difficulty.js      scores every level's difficulty D and prints it against the 1.08-per-level curve
-│   └── check-levels.js    checks every level: 60 s long, solvable and fair, hazards reused, on the curve
+│   ├── density.js         measures how busy every chart is (obstacles per bar, gaps) against the density bands
+│   └── check-levels.js    checks every level: 60 s long, solvable and fair, hazards reused, on the curve, dense enough
 ├── .github/
 │   └── workflows/
 │       └── build.yml   on every push to main: level checks, build, guard, parity check, zip, publish
