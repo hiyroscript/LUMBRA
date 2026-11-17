@@ -61,9 +61,20 @@ const MUSIC = (function () {
     { k: ["x...............", "x.........x....."], s: ["........r.......", "........x......."], h: ["x...x...x...x...", "x.x.x.x.x.xxx.x."] },
     { k: ["x.......x.......", "x.......x......."], s: ["....r.......r...", "....x..x....x.xx"], h: ["w...W...w...W...", "w.w.W.w.w.w.W.w."] },
     { k: ["x.........x.....", "x.........x....."], s: ["....r.......r...", "....x.......x..."], h: ["x.x.x.x.x.x.x.x.", "x.xox.x.xox.x.xo"] },
-    { k: ["x.......x.......", "x...x...x...x..."], s: ["....r.......r...", "....x.......x..."], h: ["sosososososososo", "sosososososososo"] }
+    { k: ["x.......x.......", "x...x...x...x..."], s: ["....r.......r...", "....x.......x..."], h: ["sosososososososo", "sosososososososo"] },
+    /* 10: the drop kit, four on the floor with open hats on every off-beat */
+    { k: ["x.......x.......", "x...x...x...x..."], s: ["....r.......r...", "....x.......x..."], h: ["..h...h...h...h.", "..O...O...O...O."] },
+    /* 11: breakbeat, ghost snares and a skipping kick */
+    { k: ["x.........x.....", "x.x.......x..x.."], s: ["....x.......x...", "....x..o.o..x..o"], h: ["x.x.x.x.x.x.x.x.", "xxoxxxoxxxoxxxox"] },
+    /* 12: taiko march, low and high drums with a shaker */
+    { k: ["t.....t.t.......", "t..t..t.t..t..t."], s: ["....T.......T...", "....T..T....T.TT"], h: ["s...s...s...s...", "s.s.s.s.s.s.s.s."], c: ["................", "........r...r.r."] }
   ];
-  const BASS = ["r...............", "r.o.r.o.r.o.r.o.", "r...t...f...a...", "...r......r.r...", "r.rorr.or.rof.ro", "r...f...r...f...", "r.r.r.r.r.r.r.o.", "r..r.r....r.o.r."];
+  const BASS = ["r...............", "r.o.r.o.r.o.r.o.", "r...t...f...a...", "...r......r.r...", "r.rorr.or.rof.ro", "r...f...r...f...", "r.r.r.r.r.r.r.o.", "r..r.r....r.o.r.",
+    /* 8: off-beat pump, 9: rolling sixteenths, 10: 3-3-2 syncopation */
+    "..r...r...r...o.", "rrorrrorrrorrror", "r..o..r..o..r.o."];
+  /* bass voice and note length (in sixteenths) per pattern */
+  const BASS_INS = function (b) { return b === 3 || b === 10 ? "sub" : b === 4 || b === 9 ? "bacid" : "bass"; };
+  const BASS_LEN = function (b, e) { return b === 0 ? (e >= 2 ? 7.5 : 15) : b === 2 || b === 5 ? 3.4 : b === 3 || b === 10 ? 2.6 : b === 8 ? 1.6 : b === 9 ? 0.9 : 1.5; };
   let ctx = null, master = null, comp = null, rev = null, dly = null, noise = null, bus = null, song = null;
   let t0 = 0, nextStep = 0, vol = 0.8, timer = 0, offline = false;
 
@@ -72,7 +83,7 @@ const MUSIC = (function () {
 
   function build(c) {
     ctx = c;
-    master = ctx.createGain(); master.gain.value = vol * .8;
+    master = ctx.createGain(); master.gain.value = vol * .7;
     comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -16; comp.ratio.value = 5; comp.attack.value = .004; comp.release.value = .18; comp.knee.value = 8;
     master.connect(comp); comp.connect(ctx.destination);
@@ -175,8 +186,8 @@ const MUSIC = (function () {
   function drum(ch, t, v, kit) {
     switch (ch) {
       case "x": tone(t, kit >= 6 ? 170 : 150, 44, .09, kit === 6 || kit === 3 ? .34 : .24, .9 * v); nz(t, .012, "highpass", 2500, .7, .18 * v); break;
-      case "t": tone(t, 150, 78, .07, .3, .7 * v); break;
-      case "T": tone(t, 300, 170, .06, .2, .5 * v); break;
+      case "t": tone(t, 150, 78, .07, .3, .55 * v); break;
+      case "T": tone(t, 300, 170, .06, .2, .4 * v); break;
       case "w": tone(t, 1900, 1700, .01, .03, .16 * v, "square"); break;
       case "W": tone(t, 1300, 1200, .01, .035, .16 * v, "square"); break;
       case "r": tone(t, 1750, 1650, .01, .03, .2 * v, "triangle"); nz(t, .03, "bandpass", 2400, 2, .16 * v); break;
@@ -220,9 +231,11 @@ const MUSIC = (function () {
   }
   function makeSong(def, L, loop) {
     const m = def.mu, sc = SC[m[2]];
+    /* action cells per bar, to tell a dense passage from a sparse one */
+    const dens = []; for (let b = 0; b < L.bars; b++) { let c = 0; for (let i = 0; i < 8; i++) if (L.chart[b * 8 + i]) c++; dens.push(c); }
     return { bpm: m[0], spb: 60 / m[0], root: m[1], sc: sc, pA: m[3], pB: m[4], kit: m[5], bass: m[6], lead: m[7], arp: m[8], pad: m[9],
-      sw: m[10], chart: L.chart, energy: L.energy, bars: L.bars, seed: hash(def.name), loop: !!loop, endBeat: L.endX / 4, T: L.T,
-      combo: loop ? {} : comboBars(L), tight: Math.min(1, 150 / m[0]) };
+      sw: m[10], lead2: m[11] || "arp", chart: L.chart, energy: L.energy, bars: L.bars, seed: hash(def.name), loop: !!loop, endBeat: L.endX / 4, T: L.T,
+      combo: loop ? {} : comboBars(L), dens: dens, tight: Math.min(1, 150 / m[0]) };
   }
   function semi(S, d) { const n = S.sc.length; return S.sc[((d % n) + n) % n] + 12 * Math.floor(d / n); }
   function chordAt(S, bar) { const p = (bar >> 3) & 1 ? S.pB : S.pA; return +p[bar % p.length] - 1; }
@@ -249,6 +262,18 @@ const MUSIC = (function () {
       if (K.c) { c = K.c[lv][pos]; if (c !== ".") drum(c, ts, .8, S.kit); }
       if (e >= 3 && pos % 2 === 1) drum("o", ts, .8, S.kit);
       if (pos === 0 && bar % 8 === 0 && e >= 2 && bar > 0) drum("C", t, .8, S.kit);
+      /* the drop: energy 4 always gets a kick on every beat and an open hat on every off-beat, and the first bar of a
+         run of 4s lands with a crash and a sub boom */
+      if (e >= 4) {
+        if (pos % 4 === 0 && K.k[lv][pos] === ".") drum("x", t, .7, S.kit);
+        if (pos % 4 === 2 && K.h[lv][pos] !== "O") drum("O", ts, .6, S.kit);
+        if (pos === 0 && (bar === 0 || S.energy[bar - 1] < 4)) { drum("C", t, .85, S.kit); tone(t, 90, 32, .5, .7, .55); }
+      }
+    }
+    /* the build: the bar before a drop rises and rolls, unless a combo cue already does */
+    if (S.energy[bar + 1] >= 4 && e < 4 && !S.combo[bar + 1]) {
+      if (pos === 0) riser(t, S.spb * 4, .1 + .03 * e);
+      if (pos >= 8) drum("n", ts, .25 + (pos - 8) * .07, S.kit);
     }
     /* combo cue: a riser across the bar before a combo and a quick snare roll on its last beat */
     if (S.combo[bar + 1]) {
@@ -257,12 +282,12 @@ const MUSIC = (function () {
     }
     /* bass */
     if (e >= 1) {
-      const c = BASS[S.bass][pos], bi = S.bass === 3 ? "sub" : S.bass === 4 ? "bacid" : "bass";
+      const c = BASS[S.bass][pos], bi = BASS_INS(S.bass);
       if (c !== "." && (e >= 2 || pos % 8 === 0 || S.bass === 0)) {
         let d = ch;
         if (c === "o") d = ch + S.sc.length; else if (c === "f") d = ch + 4; else if (c === "t") d = ch + 2;
         else if (c === "a") d = chordAt(S, (bar + 1) % (S.loop ? S.bars : 1e9)) - 1;
-        const len = S.bass === 0 ? (e >= 2 ? 7.5 : 15) : S.bass === 2 || S.bass === 5 ? 3.4 : S.bass === 3 ? 2.6 : 1.5;
+        const len = BASS_LEN(S.bass, e);
         voice(bi, t, S.root + semi(S, d), st * len, c === "o" ? .8 : 1);
         if (S.bass === 0 && e >= 2 && pos === 0) voice(bi, t + st * 8, S.root + semi(S, ch), st * 7, .85);
       }
@@ -277,6 +302,8 @@ const MUSIC = (function () {
       else if (S.arp === 2) d = [0, 2, 4, 7, 9, 7, 4, 2, 0, 2, 4, 7, 9, 11, 9, 7][pos];
       else if (S.arp === 3 && pos % 2 === 0) d = [0, 4, 2, 4, 0, 4, 2, 4][pos / 2];
       else if (S.arp === 4 && pos % 2 === 0) { const r = rng(S.seed + bar * 31 + pos); if (r() < .34) d = [0, 2, 4, 6, 7, 9][Math.floor(r() * 6)]; }
+      else if (S.arp === 5) d = [0, 4, 7, 11, 7, 4, 2, 4, 0, 4, 7, 9, 11, 9, 7, 4][pos];   /* up-down sixteenths across the octave */
+      else if (S.arp === 6 && pos % 2 === 0) d = [0, 7, 0, 7, 2, 9, 4, 7][pos / 2];            /* gated octave pulse */
       if (d !== null) voice(ai === S.lead ? ai : S.arp === 4 ? "chime" : "arp", ts, S.root + semi(S, ch + d) - (ai === S.lead ? 12 : 0), st * 1.6, ai === S.lead ? v * .5 : v);
     }
     /* lead: the level's own rhythm */
@@ -292,10 +319,16 @@ const MUSIC = (function () {
       }
       if (note !== null) {
         let len = 1; for (let i = cp + 1; i < 8 && (empty ? motif[i] < 0 : !S.chart[bar * 8 + i]); i++) len++;
-        const dur = Math.min(len, 4) * st * 2 * .92, vel = empty ? .5 : e >= 2 ? 1 : .8, mid = S.root + 12 + semi(S, ch + note);
-        if (kind === 2) voice(S.lead, t, mid - 12, dur * .8, vel, [4, .09], S.tight);
-        else if (kind === 3) { voice(S.lead, t, mid + 12, dur, vel * .8, null, S.tight); voice("cue", t, mid + 19, dur, .8); voice("chime", t, mid + 12, dur, .45); }
-        else { voice(S.lead, t, mid, dur, vel, null, S.tight); if (e >= 3) voice(S.lead, t, mid + 12, dur, vel * .45, null, S.tight); }
+        /* a dense bar (five or more actions) keeps the tune readable: short notes, and every other note steps up to the
+           arp octave on the level's second lead voice, so the line alternates between two timbres instead of smearing */
+        const dense = !empty && S.dens[bar] >= 5;
+        let k2 = 0; if (dense) for (let i = 0; i < cp; i++) if (S.chart[bar * 8 + i]) k2++;
+        const alt = dense && k2 % 2 === 1, lead = alt ? S.lead2 : S.lead;
+        const dur = (dense ? 1 : Math.min(len, 4)) * st * 2 * (dense ? .55 : .92), vel = empty ? .5 : e >= 2 ? 1 : .8;
+        const mid = S.root + 12 + semi(S, ch + note) + (alt ? 12 : 0);
+        if (kind === 2) voice(lead, t, mid - 12, dur * .8, vel, [4, .09], S.tight);
+        else if (kind === 3) { voice(lead, t, mid + 12, dur, vel * .8, null, S.tight); voice("cue", t, mid + 19, dur, .8); voice("chime", t, mid + 12, dur, .45); }
+        else { voice(lead, t, mid, dur, alt ? vel * .8 : vel, null, S.tight); if (e >= 3 && !dense) voice(lead, t, mid + 12, dur, vel * .45, null, S.tight); }
       }
     }
   }
@@ -351,7 +384,7 @@ const MUSIC = (function () {
   return {
     init: init, makeSong: makeSong, start: start, stop: stop, beat: beat, schedule: schedule, renderStats: renderStats,
     get ctx() { return ctx; }, get song() { return song; }, get t0() { return t0; },
-    setVol: function (v) { vol = v; if (master) master.gain.setTargetAtTime(v * .8, ctx.currentTime, .03); },
+    setVol: function (v) { vol = v; if (master) master.gain.setTargetAtTime(v * .7, ctx.currentTime, .03); },
     resume: function () { if (ctx && ctx.state !== "running") return ctx.resume(); },
     suspend: function () { if (ctx && ctx.state === "running") return ctx.suspend(); }
   };

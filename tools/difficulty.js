@@ -32,22 +32,13 @@
    D = aps · (1 + a·mech) · (1 + b·combo/10) · (1 + c·(0.3 − slack)/0.3)
          · (1 − d·rest) · (0.25 / max(gap10, 0.12))^e
 
-   Weights: a = 0.2, b = 0.15, c = 0.3, d = 0.5, e = 0.1. The brief started
-   from a = 0.35, b = 0.5, c = 0.6, d = 0.5, e = 0.5. Those compound too fast:
-   the old game's own level 30 already scored 16× its level 1, and a level 30
-   built to the new rules (all 15 hazards, 7-12 combos a minute, little rest,
-   bursts of half beats at 176 bpm) scored 25-35× a gentle level 1 at any
-   sensible density. The difficulty bands (2× at level 10, 4-5× at level 21)
-   fix the ratio at R = 1.08 (9.3× over the game), so the multipliers around
-   aps were scaled down until a brutal level 30 lands at 9.3×. In the dense
-   levels (README, Density) that splits into about 2.8× from density (0.34 to
-   0.94 required presses per beat), 1.57× from tempo, and about 2.1× from
-   mixing, combos and timing. Rest no longer separates the levels: every
-   level, level 1 included, has an action in nearly every bar. Per term:
+   Weights: a = 0.2, b = 0.15, c = 0.3, d = 0.5, e = 0.1. They are fixed: a level
+   that misses its target is rebuilt, the weights are never re-tuned to make the
+   numbers fit. Per term:
    - aps is the base: every other term is a multiplier around 1, so D stays in
      "actions per second" units and a level twice as dense is twice as hard.
    - a = 0.2: mixing is the largest of the multipliers. Going from one hazard
-     in view (level 1) to two or three (level 30) is worth about +30 %.
+     in view (level 1) to three or four (level 30) is worth about +60 %.
    - b = 0.15 per 10 combos: combos are already partly counted by mech, so
      this only rewards stacking them back to back (10 a minute is +15 %).
    - c = 0.3: slack is a minimum over the whole level (one tight spot sets
@@ -56,19 +47,29 @@
    - d = 0.5: a level that is half rest feels about a quarter easier, not
      half, because the dense half still has to be played.
    - e = 0.1: the 10th-percentile gap mostly re-measures density (a denser
-     level has shorter gaps), so at 0.5 it counted density twice. At 0.1 it
-     still separates levels with half-beat bursts from even ones. The 0.12 s
-     clamp stops one buffered double press from looking like a burst.
-   With these, the measured ranking of the rebuilt levels matches the order
-   they were designed in.
+     level has shorter gaps), so it only separates levels with half-beat
+     bursts from even ones. The 0.12 s clamp stops one buffered double press
+     from looking like a burst.
 
-   Target: R = 1.08 per level (D(30) ≈ 9.3 · D(1)). See README, Difficulty.
+   The curve: R = 1.10 per level, exactly. This is the design rule of the game
+   (the brief in max, section 4), not a fit to the measurements: every level is
+   built to land within ±1.5 % of D(1) · 1.10^(n−1), and each level must also be
+   1.08 to 1.12 times the one before it, so nothing is easier than the level
+   before or only barely harder. Over 30 levels that is 1.10^29 ≈ 15.9: level 30
+   is about 15.9 times level 1. Level 1 is anchored low on purpose (single,
+   generously timed inputs at 112 bpm), so that the climb ends at "really hard
+   but fair" and not at impossible. The bands: 1-9 easy (1× to 2.14×), 10-20
+   medium (2.36× to 6.12×), 21-30 hard (6.73× to 15.86×). In the rebuilt
+   levels the climb splits roughly into density (required presses per beat),
+   tempo (112 to 200 bpm) and mixing, combos and timing.
    ========================================================================== */
 "use strict";
 const fs = require("fs"), path = require("path"), vm = require("vm");
 
 const W = { a: 0.2, b: 0.15, c: 0.3, d: 0.5, e: 0.1 };
-const R = 1.08, TOL = 0.04;
+const R = 1.10, TOL = 0.015;
+/* every level must also be RMIN to RMAX times the level before it */
+const RMIN = 1.08, RMAX = 1.12;
 /* the fairness margin each level must still solve with (README, Difficulty); D is measured on that path */
 function fairMargin(n) { return n <= 1 ? 0.12 : n <= 10 ? 0.08 : n <= 20 ? 0.06 : 0.04; }
 const SLACK_MAX = 0.3, SLACK_STEP = 0.02;
@@ -238,7 +239,7 @@ function target(D1, n) { return D1 * Math.pow(R, n - 1); }
 function band(n) { return n <= 9 ? "easy" : n <= 20 ? "medium" : "hard"; }
 
 module.exports = { load: load, fairMargin: fairMargin, measure: measure, actions: actions, simplify: simplify, hazards: hazards, kindsUsed: kindsUsed, mech: mech, combos: combos,
-  slackOf: slackOf, scoreD: scoreD, target: target, band: band, W: W, R: R, TOL: TOL };
+  slackOf: slackOf, scoreD: scoreD, target: target, band: band, W: W, R: R, TOL: TOL, RMIN: RMIN, RMAX: RMAX };
 
 /* ---------------------------------------------------------------- CLI */
 if (require.main === module) {
@@ -251,27 +252,33 @@ if (require.main === module) {
   }
   const api = load(root), N = api.LEVELS.length;
   const lo = sel ? sel[0] : 1, hi = sel ? sel[1] : N;
-  /* D(1) anchors every target, so it is always measured */
-  const first = measure(api, 1, { budget: budget }), rows = [];
-  for (let n = lo; n <= hi; n++) {
-    const r = n === 1 ? first : measure(api, n, { budget: budget });
-    rows.push(r);
-  }
+  /* D(1) anchors every target, so it is always measured, and so is the level before the range (for its ratio) */
+  const first = measure(api, 1, { budget: budget }), rows = [], byN = { 1: first };
+  for (let n = Math.max(1, lo - 1); n <= hi; n++) if (!byN[n]) byN[n] = measure(api, n, { budget: budget });
+  for (let n = lo; n <= hi; n++) rows.push(byN[n]);
+  const ratio = function (r) { const p = byN[r.n - 1]; return r.n > 1 && p && p.ok && r.ok ? r.D / p.D : null; };
+  const pass = function (r) {
+    if (!r.ok || !first.D) return false;
+    const dev = r.D / target(first.D, r.n) - 1, q = ratio(r);
+    return Math.abs(dev) <= TOL + 1e-12 && (q === null || (q >= RMIN - 1e-12 && q <= RMAX + 1e-12));
+  };
   if (json) {
     console.log(JSON.stringify(rows.map(function (r) {
       return { n: r.n, ok: r.ok, bpm: r.bpm, sec: +r.sec.toFixed(2), aps: r.aps, gapMed: r.gapMed, gap10: r.gap10, slack: r.slack, mech: r.mech,
-        combo: r.combo, rest: r.rest, D: r.D, target: first.D ? target(first.D, r.n) : null, kinds: r.kinds };
+        combo: r.combo, rest: r.rest, D: r.D, target: first.D ? target(first.D, r.n) : null, ratio: ratio(r), pass: pass(r), kinds: r.kinds };
     }), null, 1));
     process.exit(0);
   }
   const f = function (v, d) { return v === undefined || v === null || !isFinite(v) ? "-" : v.toFixed(d); };
-  const head = ["lv", "name", "bpm", "sec", "aps", "gapMed", "gap10", "slack", "mech", "combo", "rest", "D", "target", "D/target", "band"];
+  const head = ["lv", "name", "bpm", "sec", "aps", "gapMed", "gap10", "slack", "mech", "combo", "rest", "D", "target", "±%", "×prev", "band", "ok"];
   const tab = [head];
+  let bad = 0;
   rows.forEach(function (r) {
-    if (!r.ok) { tab.push([String(r.n), r.name, String(r.bpm), f(r.sec, 1), "UNSOLVED"]); return; }
-    const t = first.D ? target(first.D, r.n) : NaN;
+    if (!r.ok) { bad++; tab.push([String(r.n), r.name, String(r.bpm), f(r.sec, 1), "UNSOLVED"]); return; }
+    const t = first.D ? target(first.D, r.n) : NaN, dev = (r.D / t - 1) * 100, ok = pass(r);
+    if (!ok) bad++;
     tab.push([String(r.n), r.name, String(r.bpm), f(r.sec, 1), f(r.aps, 2), f(r.gapMed, 2), f(r.gap10, 2), f(r.slack, 2), f(r.mech, 2),
-      f(r.combo, 0), f(r.rest, 2), f(r.D, 3), f(t, 3), f(r.D / t, 3), band(r.n)]);
+      f(r.combo, 0), f(r.rest, 2), f(r.D, 3), f(t, 3), (dev >= 0 ? "+" : "") + f(dev, 1), f(ratio(r), 3), band(r.n), ok ? "ok" : "NO"]);
   });
   const w = head.map(function (_, c) { return Math.max.apply(null, tab.map(function (r) { return (r[c] || "").length; })); });
   tab.forEach(function (r, i) {
@@ -279,5 +286,6 @@ if (require.main === module) {
     if (i === 0) console.log(w.map(function (x) { return "-".repeat(x); }).join("  "));
   });
   console.log("\nD = aps·(1+" + W.a + "·mech)·(1+" + W.b + "·combo/10)·(1+" + W.c + "·(0.3−slack)/0.3)·(1−" + W.d + "·rest)·(0.25/max(gap10,0.12))^" + W.e +
-    "   target D(n) = D(1)·" + R + "^(n−1), ±" + (TOL * 100) + " %");
+    "\ntarget D(n) = D(1)·" + R + "^(n−1), within ±" + (TOL * 100) + " %, and D(n)/D(n−1) between " + RMIN + " and " + RMAX +
+    (bad ? "\n" + bad + " level" + (bad > 1 ? "s" : "") + " off the curve" : ""));
 }

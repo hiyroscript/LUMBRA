@@ -1,3 +1,5 @@
+> **Note (current rule):** the per-level difficulty ratio is now **1.10**: every level n lands within ±1.5 % of D(1) · 1.10^(n−1) and at 1.08 to 1.12 times the level before it (level 30 ≈ 15.9 × level 1). This replaces whatever ratio, tolerance or bands this brief or earlier versions of it said before. `tools/difficulty.js` and `tools/check-levels.js` enforce it.
+
 # Prompt: Shadow Skirr (hiyroscript/shkr): Geometry Dash–style level rework, 1.10× difficulty curve, new music
 
 You are working in the `hiyroscript/shkr` repo (Shadow Skirr, a one-minute-per-level rhythm runner). Read `README.md`, `max` (the design brief), `js/levels.js`, `js/sim.js`, `js/music.js`, `js/render.js`, `js/fixes.js` and every file in `tools/` before you change anything. Then rebuild all 30 levels and their soundtracks as described below.
