@@ -1,150 +1,123 @@
-# SHADOW SKIRR — Split `index.html` into multiple files + add a README
+# SHADOW SKIRR — Automatic release build + developer build on GitHub Pages
 
-You are working in the **`hiyroscript/shkr`** repository. It contains:
+You are working in the **`hiyroscript/shkr`** repository: *Shadow Skirr*, a static-site rhythm runner (`index.html`, `css/style.css`, `js/*.js`, `README.md`, `max`). There is no build step, no `package.json`, and no `.github/` folder yet. Read `README.md` first, especially **Development notes**. **Leave `max` untouched.**
 
-- `index.html` (~2,606 lines): the whole game, *Shadow Skirr*, a rhythm runner. Inline `<style>`, HTML screens, and one inline `<script>`. No build step, no dependencies other than Google Fonts.
-- `max`: an older design/rebrand brief. **Leave it untouched.**
+## Goal
 
-Your job: **split `index.html` into separate CSS and JS files and add a `README.md`, with zero change in behaviour.** This is a pure refactor. The game must look, sound, play, save and load exactly as it does now. If you are ever unsure whether a change alters behaviour, don't make it.
+From one source tree, produce **two builds automatically on every push to `main`**:
 
----
+1. **Release build**: the normal game exactly as it plays today, packaged as a **downloadable zip** that the owner can upload to a game site (itch.io, Newgrounds, etc.). It must contain **no developer code at all**: not hidden, not disabled, but absent from the files.
+2. **Developer build**: deployed to **GitHub Pages** (`https://hiyroscript.github.io/shkr/`). All 30 levels are unlocked and show **three rainbow stars**, and a developer panel lets you **reset progression and put it back**.
 
-## 1. Hard rules
+Only the developer build may have the developer features. That is the most important requirement in this task.
 
-1. **Move code, don't edit it.** Every line of CSS and JS goes into its new file byte-for-byte: same text, same order, same comments, same whitespace. No renaming, no reformatting, no linting, no "small cleanups", no modernising (`var`→`let`, arrow functions, etc.), no fixing typos in strings.
-2. **No ES modules, no bundler, no build step, no `package.json`.** Use plain classic `<script src="...">` tags. Reason: the files share top-level globals (`SIM`, `HAZ`, `LEVELS`, `HOME`, `FIXES`, `DEMO_SOL`, `MUSIC`, `BACKDROPS`, `RENDER`). Classic scripts share one global scope, so `const` declared in one file is visible to later files. `type="module"` would break that, break `typeof FIXES !== "undefined"` in `game.js`, and stop the game from working when `index.html` is opened directly from disk (`file://`).
-3. **Do not add `defer`, `async`, or `type="module"`** to the script tags. Put them at the **same position** the inline script is now: at the end of `<body>`, after all the HTML, so the DOM exists when `game.js` runs, as it does today.
-4. **Load order is fixed** and must match the current order inside the inline script:
-   `sim.js` → `levels.js` → `fixes.js` → `demo.js` → `music.js` → `backdrops.js` → `render.js` → `game.js`
-5. **Don't rename** the repo, `index.html`, or `max`. `index.html` stays the entry point at the repo root, so GitHub Pages and "open the file" keep working.
-6. **Keep these exactly as they are** (they look like leftovers but are intentional):
-   - localStorage key `shadowskirr.v1` and the one-time migration from `lumbra.v1` (`LEGACY_KEY`) in `game.js`.
-   - `window.__SHADOWSKIRR` and its legacy alias `window.__LUMBRA`.
-   - The Google Fonts `<link>` tags in `<head>` (Space Grotesk, JetBrains Mono).
-7. Keep everything in `<head>` other than the `<style>` block unchanged (meta tags, title, viewport, preconnects, font link).
+**The developer build needs no build step.** GitHub Pages keeps serving the `main` branch root exactly as it does now, so the repo itself *is* the developer version. Don't add a Pages deploy workflow and don't change the Pages settings. Only the release build is generated: it's the repo with the dev code stripped out.
 
----
+## Current code you must know about
 
-## 2. Where to cut (the file already marks the seams)
+- Scripts are classic `<script>` tags in `index.html`, loaded in this order at the end of `<body>`, sharing top-level globals: `sim.js` → `levels.js` → `fixes.js` → `demo.js` → `music.js` → `backdrops.js` → `render.js` → `game.js`. **Do not convert to ES modules.** The game must still run by opening `index.html` from `file://`.
+- `js/game.js` is one IIFE. Save state:
+  - `KEY = "shadowskirr.v1"`, `LEGACY_KEY = "lumbra.v1"`, `DEFAULTS = { music: 0.8, shake: true, sel: 1, unlocked: 1, rec: {} }`.
+  - `S.rec[n] = { t: tries, s: stars, d: done }`. `starsFor(t)` returns `4` for three rainbow stars (1 try), `3`/`2`/`1` otherwise. `starsHTML(4)` renders the rainbow stars (`.star.rb`).
+  - `S.unlocked` is the highest unlocked level (1..N, N = `LEVELS.length` = 30).
+  - `loadState()`, `saveState()`, `paintHome()`, `paintLevels()`, `startHome()`, `show(screen)`, `showCard({...})`, `hideCard()` exist inside the IIFE.
+  - Settings has a "Reset progress" row (`#resetBtn`) that sets `S.rec = {}; S.unlocked = 1; S.sel = 1`.
+  - The debug handle is `window.__SHADOWSKIRR = { G, S(), startLevel, keys, getL }` (alias `window.__LUMBRA`).
 
-The inline script already contains file markers of the form `/* ---- name.js ---- */`. Use them as the split points. Approximate line numbers (confirm with `grep -n '/\* ---- ' index.html` before cutting):
+## Design: one source, a tiny hook, and a dev-only file
 
-| Lines (approx.) | Content | Goes to |
-|---|---|---|
-| 12–227 | `<style>` … `</style>` (contents only, not the tags) | `css/style.css` |
-| 228–316 | `</head>`, `<body>`, canvas, `#wipe`, all `<section class="screen">` markup | stays in `index.html` |
-| 318–716 | `/* ---- sim.js ---- */` → `const SIM = (function () { … })();` | `js/sim.js` |
-| 717–976 | `/* ---- levels.js ---- */` → `HAZ`, `LEVELS`, `HOME` | `js/levels.js` |
-| 977–979 | `/* ---- fixes.js ---- */` → `const FIXES = {};` | `js/fixes.js` |
-| 980–982 | `/* ---- demo.js ---- */` → `const DEMO_SOL = {…};` (one very long line, copy it whole) | `js/demo.js` |
-| 983–1288 | `/* ---- music.js ---- */` → `const MUSIC = …` | `js/music.js` |
-| 1289–1471 | `/* ---- backdrops.js ---- */` → `const BACKDROPS = …` | `js/backdrops.js` |
-| 1472–2209 | `/* ---- render.js ---- */` → `const RENDER = …` | `js/render.js` |
-| 2210–2603 | `/* ---- game.js ---- */` → the main `(function () { "use strict"; … })();` | `js/game.js` |
+### 1. Add a minimal, inert hook to `game.js` (ships in both builds)
 
-Each JS file starts at its marker line and ends on the line before the next marker (the last one ends on the line before `</script>`). Keep the marker comment as the first line of each file.
+Keep this as small and behaviour-neutral as possible. In the release build it must do nothing.
 
-**Do it with a script, not by hand.** Write a small throwaway script (Python or Node, kept outside the repo or deleted afterwards) that reads `index.html`, slices by the marker lines, and writes each file. Hand-copying a 2,600-line file risks dropping or altering a line, especially the huge `DEMO_SOL` line.
+- Read the save key from an optional global: `const KEY = (window.SHKR_DEV && window.SHKR_DEV.saveKey) || "shadowskirr.v1";`. The dev build uses its own key (`shadowskirr.dev.v1`) so dev progress can never touch a player's real save, even on the same origin.
+- Extend the existing debug handle with what the dev panel needs: `saveState`, `paintHome`, `paintLevels`, `startHome`, `show`, `showCard`, `hideCard`, `N`, and a `setS(obj)` that replaces the state object through the same validation `loadState()` uses (clamp `unlocked`/`sel`, make sure `rec` is an object). Don't rename or remove anything that's already on the handle.
+- At the very end of boot, if `typeof window.SHKR_DEV_INIT === "function"`, call it once with the handle. That's the only coupling. If `dev.js` isn't loaded, nothing changes.
+- The legacy-key migration (`lumbra.v1`) should run only for the real key, not for the dev key.
 
-### Resulting layout
+### 2. Create `js/dev.js` (developer build only)
 
-```
-shkr/
-├── index.html        ← head + <link rel="stylesheet" href="css/style.css"> + body markup + 8 <script src> tags
-├── css/
-│   └── style.css
-├── js/
-│   ├── sim.js
-│   ├── levels.js
-│   ├── fixes.js
-│   ├── demo.js
-│   ├── music.js
-│   ├── backdrops.js
-│   ├── render.js
-│   └── game.js
-├── README.md
-└── max               ← unchanged
-```
+A classic script loaded **after** `game.js`. It sets `window.SHKR_DEV = { saveKey: "shadowskirr.dev.v1" }` **before** `game.js` runs, so split it in two:
 
-### New `index.html`
+- `js/dev-config.js` (loaded **before** `sim.js`): only `window.SHKR_DEV = { saveKey: "shadowskirr.dev.v1" };`.
+- `js/dev.js` (loaded **after** `game.js`): defines `window.SHKR_DEV_INIT = function (api) { ... }`.
 
-- Replace the `<style>…</style>` block with `<link rel="stylesheet" href="css/style.css">` **in the same place** (after the font link), so the cascade order is unchanged.
-- Replace the inline `<script>…</script>` with:
+Features of `dev.js`:
 
-```html
-<script src="js/sim.js"></script>
-<script src="js/levels.js"></script>
-<script src="js/fixes.js"></script>
-<script src="js/demo.js"></script>
-<script src="js/music.js"></script>
-<script src="js/backdrops.js"></script>
-<script src="js/render.js"></script>
-<script src="js/game.js"></script>
-```
+- **Default dev state = everything unlocked with three rainbow stars.** On first load (no dev save yet), set `unlocked = N` and `rec[n] = { t: 1, s: 4, d: true }` for every level, save, then repaint. Home, the levels grid and the cleared card must all show rainbow stars, and every level must be playable.
+- **Developer panel**: add a "developer" section to the Settings screen (inject DOM from `dev.js`, styled with the existing classes `set-row`, `lbl`, `set-ctl`, `chip`, `chip danger`; don't add new CSS to `style.css`, and put any extra styling inline or in a `<style>` injected by `dev.js`). Controls:
+  - **Unlock all (rainbow)**: sets every level to unlocked + three rainbow stars.
+  - **Reset progress**: back to a fresh game (`unlocked = 1`, `rec = {}`, `sel = 1`), so the real first-time flow can be tested.
+  - **Put progress back**: restores the progression exactly as it was right before the last reset/unlock-all. Before every reset or unlock-all, snapshot `{ unlocked, sel, rec }` to `localStorage` key `shadowskirr.dev.snapshot`; "put back" restores it. Disable or hide the button when there's no snapshot. One level of undo is enough. Keep `music`/`shake` settings untouched by all three actions.
+  - Each destructive action uses the existing `showCard` confirmation pattern (like `#resetBtn` does).
+- A small, unobtrusive **"DEV" badge** (e.g. a `tag` in the home header next to "shadow skirr · hiyroscript") so it's always obvious which build you're looking at.
+- After any change: `saveState()`, `paintHome(false)`, `paintLevels()`, and return home via `show("home"); startHome();` the way the existing reset does.
+- Wrap all `localStorage` access in try/catch, matching `game.js`.
 
-- Use relative paths (no leading `/`), so it works on GitHub Pages under `/shkr/` and from `file://`.
-- Every other line of `index.html` stays identical.
+### 3. `index.html` in the repo is the **developer** page
 
----
+Add the two dev script tags directly to `index.html`: `<script src="js/dev-config.js"></script>` immediately before the `sim.js` tag, and `<script src="js/dev.js"></script>` immediately after the `game.js` tag. Mark each with an HTML comment such as `<!-- dev-only -->` on the same line, so the release build can remove them reliably. Since Pages serves the repo as-is, that's all the developer version needs. Opening `index.html` from disk also gives the developer version.
 
-## 3. Prove nothing changed
+### 4. Release build script: `tools/build-release.sh` (bash, no npm dependencies)
 
-Do all of these before you call it done, and report the results.
+`tools/build-release.sh <outdir>`:
 
-### 3a. Reassembly check (must be exact)
-Write a check that rebuilds the original file from the parts: take the new `index.html`, put the contents of `css/style.css` back between `<style>` and `</style>` where the `<link>` is, and put the 8 JS files, concatenated in load order, back between `<script>` and `</script>` where the `<script src>` tags are. **`diff` the result against the original `index.html` from `git show HEAD:index.html`. It must be empty.** Watch trailing newlines at file boundaries; if the diff only shows newline differences, fix the split, don't ignore them.
+- Copies `index.html`, `css/`, `js/` and `README.md` into `<outdir>`. Never copy `max`, `tools/`, `.github/` or `.git`.
+- Deletes `js/dev.js` and `js/dev-config.js` from the output and removes every line marked `<!-- dev-only -->` from the output `index.html`. Fail if the expected dev lines aren't found, because that means the markers changed.
+- **Guard:** fail the build (non-zero exit) if anything in the output contains `dev.js`, `dev-config.js`, `dev-only`, `shadowskirr.dev`, the dev panel's text, or any *definition* of `SHKR_DEV` / `SHKR_DEV_INIT` (no `SHKR_DEV =` or `SHKR_DEV_INIT =` assignments; the inert read-only hook lines in `game.js` are allowed). Also confirm every `<script src>` in the output `index.html` points to a file that exists.
+- Stamps a version: replace a placeholder `<meta name="shkr-build" content="dev">` (add it to `index.html`) with `release · <short-sha> · <UTC date>`.
 
-Also confirm:
-- `git show HEAD:index.html | grep -c ''` line count equals the reassembled line count.
-- `grep -ci lumbra` across the repo gives the same total as before (2 in `index.html`, which now live in `js/game.js`, plus those in `max`).
+### 5. GitHub Actions workflow: `.github/workflows/build.yml`
 
-### 3b. Syntax check
-Run `node --check` on each `js/*.js` file. They should all pass on their own (they're plain scripts that only reference globals at runtime).
+Triggers: `push` to `main`, plus `workflow_dispatch`. Ignore pushes that only touch `max` or `*.md` other than `README.md` (paths-ignore), so editing the brief doesn't cut a release.
 
-### 3c. Headless run (if a browser is available, e.g. Playwright/Chromium)
-Serve the folder (`python3 -m http.server`) and also open it via `file://`. In both cases:
-- No console errors and no 404s in the network log.
-- The splash shows "SHADOW SKIRR", then the home screen appears after ~2 s.
-- `window.__SHADOWSKIRR` and `window.__LUMBRA` both exist and are the same object.
-- `typeof SIM, HAZ, LEVELS, HOME, FIXES, DEMO_SOL, MUSIC, BACKDROPS, RENDER` are all defined; `LEVELS.length` is unchanged (30).
-- Start level 1 via `__SHADOWSKIRR.startLevel(1)` and let it run a few seconds; no errors.
-- The attract/demo playback on the home screen runs (it replays `DEMO_SOL`).
-- Seed `localStorage["lumbra.v1"]` with a save in a fresh profile, reload, and confirm it migrates to `shadowskirr.v1` exactly as before.
-- Take a screenshot of the splash, the home screen and level 1 at the same viewport size on the **original** `index.html` (from git) and on the new one; they should match.
+One job, **release**:
 
-### 3d. Determinism check (optional but good)
-`SIM` is deterministic and is described as shared with a "Node beatability solver" (not in this repo). In Node, load `js/sim.js` + `js/levels.js` into one `vm` context and, for a few levels, `SIM.compile` the level, `SIM.replay` / `SIM.solve` it, and compare the result to the same calls made against the scripts extracted from the original `index.html`. Results must be identical. Do **not** add `module.exports` or any Node-specific code to the game files to make this work; load them with `vm.runInContext` instead.
+- `actions/checkout@v4`, `actions/setup-node@v4` (Node 20), run `tools/build-release.sh dist/release`, then `node tools/parity-check.js . dist/release`. If the parity check fails, stop: no zip, no release.
+- Zip so that **`index.html` is at the root of the zip** (itch.io requires this): `cd dist/release && zip -r ../shadow-skirr.zip .`.
+- Upload it with `actions/upload-artifact@v4` (name `shadow-skirr-release`), so every run has a downloadable zip on its Actions page.
+- Also publish it to a rolling GitHub Release: tag `latest`, title "Shadow Skirr — latest build", asset `shadow-skirr.zip`, body containing the commit SHA, date and commit message. Delete and recreate the `latest` release/tag each run (e.g. `gh release delete latest --cleanup-tag -y || true` then `gh release create latest ...`), using `GITHUB_TOKEN`. Needs `permissions: contents: write`. The stable download link becomes `https://github.com/hiyroscript/shkr/releases/download/latest/shadow-skirr.zip`.
 
-If any check fails, fix the split. Never change game code to make a check pass.
+Pin action versions as above. Keep the workflow readable with comments. **No Pages job.** Pages keeps deploying from the branch the way it does now.
 
----
+### 6. Release-vs-source parity check: `tools/parity-check.js` (Node, no dependencies)
 
-## 4. Write `README.md`
+The release must play **exactly** like the source, minus the dev code. Add a check that proves it and fails the workflow if it doesn't. It runs on every build, **before** the zip is made. Use only built-in Node modules (`fs`, `path`, `vm`, `crypto`), since there's no `package.json`.
 
-Accurate, concise, based only on what is actually in the code (read it; don't invent features). Include:
+`node tools/parity-check.js <repo-root> <release-dir>` does two things:
 
-1. **Title + one-line pitch**: *Shadow Skirr*, a rhythm runner by hiyroscript where the music and the level are the same thing.
-2. **Play**: open `index.html` in a browser, or use the GitHub Pages URL if Pages is enabled (check repo settings; if you can't tell, leave a placeholder line the owner can fill in, clearly marked). No install, no build.
-3. **Controls**: read the input code in `js/game.js` (keyboard keys, touch/pointer, pause) and list the real bindings. Don't guess.
-4. **Features**: 30 levels plus the home screen, each with its own generated soundtrack (Web Audio, no audio files, no sound effects); the hazards listed in `HAZ` (Bloom, Halo, Drift, Fade, Prism, Anchor, Rail, Rift, Comet, Thermal, Mimic, Glass, Coil, Flicker, Zenith) and the level each is introduced on; star ratings / records, rebirth, settings (music volume, screen shake), reduced-motion support, progress saved in `localStorage`. Verify each item in the code before listing it.
-5. **Project structure**: the file tree above with one line per file saying what it does (take the wording from each file's header comment).
-6. **How it works (short)**: fixed-timestep deterministic sim measured in beats (4 world units per beat, 96 ticks per beat), so levels play the same at any tempo; levels are written as compact chart strings; the soundtrack's lead plays on the half-beats where the level asks for an action.
-7. **Development notes**:
-   - Script load order matters and why (shared globals, classic scripts).
-   - Don't convert to ES modules without a local server and refactoring the globals.
-   - Save key `shadowskirr.v1`; old `lumbra.v1` saves migrate automatically.
-   - Debug handle: `window.__SHADOWSKIRR` (`G`, `S()`, `startLevel(n)`, `keys`, `getL`), with `__LUMBRA` kept as a legacy alias.
-   - Fonts come from Google Fonts; offline it falls back to system fonts.
-8. **Credits**: a game by hiyroscript. Don't add a license section unless a LICENSE file exists.
+**A. File parity (exact):**
+- Every file in the release must exist in the source, and every source file under `index.html`, `css/` and `js/` must exist in the release **except** `js/dev.js` and `js/dev-config.js`.
+- Every shared file must be **byte-identical** (compare SHA-256), except `index.html`.
+- `index.html` must equal the source after only these differences: the `<!-- dev-only -->` lines removed and the `shkr-build` meta content changed. Normalise exactly those two things in the source copy, then require an exact match. Any other difference fails.
 
-No badges, no emojis, no marketing fluff.
+**B. Gameplay parity (behaviour):** `js/sim.js` exposes `SIM.compile`, `SIM.solve`, `SIM.replay`, `SIM.newState` and `SIM.step`, and it is deterministic.
+- In two separate `vm` contexts, load `sim.js` → `levels.js` → `fixes.js` → `demo.js` as classic scripts: one from the source and one from the release. Give each context the minimal globals the files need. Don't load `music.js`, `render.js`, `backdrops.js` or `game.js` here; their parity is covered by the byte-identical check in A.
+- For each of the 30 levels plus `HOME`: compile it in both contexts (applying `FIXES[n]` the same way `game.js`'s `getL` does) and compare a stable JSON serialisation of the compiled level. Then solve it **once** in the source context and `replay` that exact input path in **both** contexts. Compare the final state (won/dead, tick, position, and any other fields on the state) and require identical results. Also replay `DEMO_SOL` on the home demo level in both.
+- If `solve` can't beat a level within its budget, don't fail on that alone. Replay a fixed pseudo-random input sequence (seeded) in both contexts instead and compare the states every tick.
+- Print a short table (level, compiled-hash match, replay match, ticks), exit non-zero on any mismatch, and name the first differing field.
 
----
+Add a sabotage test to the acceptance checks: change one character of a chart in `/tmp/r/js/levels.js` and confirm the parity check fails, then rebuild.
 
-## 5. Deliver
+### 7. README updates
 
-- Work on a new branch (e.g. `split-into-files`), one commit (or two: split, then README).
-- Open a PR. In the description: the new file tree, the reassembly-diff result (empty), the `node --check` results, the headless-run results and screenshots if you took them, and an explicit statement that no game code was modified, only moved.
-- Delete any helper scripts you used for splitting/verification, or keep them out of the repo.
+- Under **Play**: Pages is now the **developer build** (all levels unlocked with rainbow stars, dev panel in Settings). The release zip is downloaded from the `latest` release link or from the workflow run's artifacts.
+- New **Builds** section: the repo/Pages is the dev version, the release zip is the repo minus dev code, what `tools/build-release.sh` does, the `<!-- dev-only -->` marker rule (any future dev-only tag must carry it), and the two save keys.
+- Update the **Project structure** tree (`js/dev-config.js`, `js/dev.js`, `tools/build-release.sh`, `tools/parity-check.js`, `.github/workflows/build.yml`) and the script-order note (`dev-config.js` first, `dev.js` last; both are stripped from the release).
 
-**Definition of done:** reassembling the parts gives a file identical to the original `index.html`, the game runs from both `file://` and a local server with no console errors, and `README.md` exists and is accurate.
+## Acceptance checks (run them before you finish)
+
+1. `bash tools/build-release.sh /tmp/r` succeeds.
+2. `/tmp/r` contains no `dev.js`/`dev-config.js`, and `grep -rn "shadowskirr.dev\|dev-only\|SHKR_DEV_INIT =\|SHKR_DEV =" /tmp/r` finds nothing. Sabotage test: temporarily add an unmarked dev `<script>` tag to `index.html` and confirm the guard **fails**, then revert.
+3. `node tools/parity-check.js . /tmp/r` passes, and the sabotage test in section 6 makes it fail.
+3b. The repo's `index.html` loads `dev-config.js` before `sim.js` and `dev.js` after `game.js`.
+4. Serve the repo root (dev) and `/tmp/r` (release) with `python3 -m http.server` and check in a headless browser if one is available, or with the `__SHADOWSKIRR` handle via a Node/jsdom script if not:
+   - Release: fresh profile → only level 1 unlocked, no stars, no DEV badge, no developer section in Settings, save goes to `shadowskirr.v1`.
+   - Dev: fresh profile → `S().unlocked === 30` and every `rec[n].s === 4`, DEV badge visible, developer section present. Reset → level 1 only; Put back → 30 rainbow levels again; Reset then play/clear level 1 then Put back → snapshot restored. Save goes to `shadowskirr.dev.v1`, and `shadowskirr.v1` is never written.
+5. Opening the repo's `index.html` from disk (dev) and `/tmp/r/index.html` from disk (release) both run with no console errors.
+6. Gameplay, music, visuals and the normal "Reset progress" in the release build behave exactly as before. This is not a gameplay change.
+7. Validate the workflow YAML (e.g. `python3 -c "import yaml,sys;yaml.safe_load(open('.github/workflows/build.yml'))"`).
+
+## Deliverable
+
+Commit on a new branch and open a PR to `main` titled **"Automatic release zip + developer build on Pages"**. The PR description should list the files added/changed and the download link for the zip, and note that merging it turns the Pages site into the developer version with no settings change.
