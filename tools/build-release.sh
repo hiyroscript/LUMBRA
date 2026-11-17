@@ -2,23 +2,21 @@
 # =============================================================================
 # tools/build-release.sh <outdir>
 #
-# Builds the RELEASE version of Shadow Skirr: the repo with every bit of
-# developer code removed. The repo itself (and GitHub Pages) is the developer
-# build; this script is the only way the release is made.
+# Builds the RELEASE version of Shadow Skirr: only what the game needs to run,
+# with every bit of developer code removed. The repo itself (and GitHub Pages)
+# is the developer build; this script is the only way the release is made.
 #
-#   1. copies index.html, css/, js/ and README.md into <outdir>
-#      (never max, tools/, .github/ or .git)
+#   1. copies index.html, css/ and js/ into <outdir>, nothing else
+#      (no README.md, max, tools/, .github/ or .git)
 #   2. deletes js/dev.js and js/dev-config.js
-#   3. removes developer-only lines from index.html and README.md:
-#        - any line containing          <!-- dev-only -->
-#        - every line from a line that is just   <!-- dev-only:begin -->
-#          through the next line that is just    <!-- dev-only:end -->
-#      and fails if the two expected dev <script> lines are not marked in
-#      index.html (that means the markers changed)
+#   3. removes every line of index.html marked <!-- dev-only -->, and fails if
+#      the two expected dev <script> lines are not marked (that means the
+#      markers changed)
 #   4. stamps <meta name="shkr-build" content="dev"> with
 #      "release · <short-sha> · <UTC date>"
 #   5. GUARD: fails if anything in <outdir> still contains developer code or
-#      text, or if a <script src> points at a missing file
+#      text, if index.html loads a file that is missing, or if the release has
+#      a file that index.html does not load
 #
 # Exit status is non-zero on any failure. No npm, no dependencies: bash plus
 # coreutils, grep, sed, awk and (optionally) git for the stamp.
@@ -31,7 +29,7 @@ fail() { echo "build-release: FAIL: $*" >&2; exit 1; }
 [ $# -eq 1 ] && [ -n "$1" ] || { echo "usage: bash tools/build-release.sh <outdir>" >&2; exit 2; }
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-for f in index.html README.md css js; do [ -e "$ROOT/$f" ] || fail "source is missing $f"; done
+for f in index.html css js; do [ -e "$ROOT/$f" ] || fail "source is missing $f"; done
 
 # ---------------------------------------------------------------- output dir
 mkdir -p "$1"
@@ -42,14 +40,14 @@ case "$OUT/" in "$ROOT/js/"*|"$ROOT/css/"*|"$ROOT/tools/"*|"$ROOT/.github/"*|"$R
 # only ever wipe an empty folder or a previous release build
 for e in "$OUT"/* "$OUT"/.[!.]* "$OUT"/..?*; do
   [ -e "$e" ] || continue
-  case "$(basename "$e")" in index.html|README.md|css|js) ;;
+  case "$(basename "$e")" in index.html|css|js) ;;
     *) fail "refusing to wipe $OUT: it is not empty and does not look like a release build (found $(basename "$e"))";; esac
 done
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
 # ---------------------------------------------------------------- 1-2. copy, drop dev files
-cp "$ROOT/index.html" "$ROOT/README.md" "$OUT/"
+cp "$ROOT/index.html" "$OUT/"
 cp -R "$ROOT/css" "$ROOT/js" "$OUT/"
 rm -f "$OUT/js/dev.js" "$OUT/js/dev-config.js"
 
@@ -60,23 +58,8 @@ grep -qF '<script src="js/dev-config.js"></script>' <<<"$marked" \
 grep -qF '<script src="js/dev.js"></script>' <<<"$marked" \
   || fail 'index.html: the dev.js <script> line is not marked <!-- dev-only --> (did the markers change?)'
 
-strip_dev() {   # strip_dev <file>: rewrites <file> without its dev-only lines
-  local f="$1"
-  if ! awk -v F="${f#"$OUT"/}" '
-      { t = $0; gsub(/^[ \t]+|[ \t\r]+$/, "", t) }
-      t == "<!-- dev-only:begin -->" { if (inb) { print F ":" NR ": nested <!-- dev-only:begin -->" > "/dev/stderr"; bad = 1; exit 1 } inb = NR; next }
-      t == "<!-- dev-only:end -->"   { if (!inb) { print F ":" NR ": <!-- dev-only:end --> without a begin" > "/dev/stderr"; bad = 1; exit 1 } inb = 0; next }
-      inb { next }
-      index($0, "<!-- dev-only -->") { next }
-      { print }
-      END { if (bad) exit 1; if (inb) { print F ":" inb ": <!-- dev-only:begin --> is never closed" > "/dev/stderr"; exit 1 } }
-    ' "$f" > "$f.tmp"; then
-    rm -f "$f.tmp"; fail "$f: unbalanced dev-only markers"
-  fi
-  mv "$f.tmp" "$f"
-}
-strip_dev "$OUT/index.html"
-strip_dev "$OUT/README.md"
+awk 'index($0, "<!-- dev-only -->") == 0' "$OUT/index.html" > "$OUT/index.html.tmp"
+mv "$OUT/index.html.tmp" "$OUT/index.html"
 
 # ---------------------------------------------------------------- 4. version stamp
 PLACEHOLDER='<meta name="shkr-build" content="dev">'
@@ -113,13 +96,19 @@ if hits="$(grep -rlF 'SHKR_DEV' "$OUT" | grep -vx "$OUT/js/game.js")"; then
 fi
 if grep -qF 'content="dev"' "$OUT/index.html"; then leak "index.html still carries the dev build meta"; fi
 
-# every local <script src> / stylesheet must exist in the release
-refs="$(grep -oE '<(script|link)[^>]*(src|href)="[^"]*"' "$OUT/index.html" | sed -E 's/.*(src|href)="([^"]*)"/\2/' || true)"
+# every local <script src> / stylesheet must exist in the release ...
+refs="$(grep -oE '<(script|link)[^>]*(src|href)="[^"]*"' "$OUT/index.html" | sed -E 's/.*(src|href)="([^"]*)"/\2/' \
+  | grep -vE '^(https?:|//|data:|$)' || true)"
 [ -n "$(grep -oE '<script[^>]*src="' "$OUT/index.html")" ] || leak "index.html has no <script src> at all"
 while IFS= read -r ref; do
-  case "$ref" in ""|http://*|https://*|//*|data:*) continue;; esac
-  [ -f "$OUT/$ref" ] || leak "index.html references $ref, which is not in the release"
+  [ -z "$ref" ] || [ -f "$OUT/$ref" ] || leak "index.html loads $ref, which is not in the release"
 done <<<"$refs"
+# ... and the release holds nothing else: every file is index.html or loaded by it
+while IFS= read -r f; do
+  f="${f#./}"
+  [ "$f" = index.html ] || grep -qxF -- "$f" <<<"$refs" \
+    || leak "$f is in the release but index.html does not load it (delete it, or load it from index.html)"
+done < <(cd "$OUT" && find . -type f | sort)
 
 [ "$leaks" -eq 0 ] || fail "$leaks guard check(s) failed; the release in $OUT must not be used"
 

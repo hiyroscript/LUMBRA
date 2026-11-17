@@ -7,12 +7,13 @@
    before the zip is made) and locally. Built-in Node modules only.
 
    A. File parity (exact)
-      - every release file exists in the source; every source file under
-        index.html, css/, js/ (and README.md) is in the release, except
-        js/dev.js and js/dev-config.js, which must not be
-      - every shared file is byte-identical (SHA-256), except index.html and
-        README.md, which must equal the source after removing only the
-        dev-only lines and, in index.html, restamping the shkr-build meta
+      - the release holds only index.html, css/ and js/; every release file
+        exists in the source, and every source file under index.html, css/
+        and js/ is in the release, except js/dev.js and js/dev-config.js,
+        which must not be
+      - every shared file is byte-identical (SHA-256), except index.html,
+        which must equal the source after removing only the lines marked
+        <!-- dev-only --> and restamping the shkr-build meta
    B. Gameplay parity (behaviour)
       - sim.js, levels.js, fixes.js and demo.js load as classic scripts in two
         separate vm contexts, one from each tree
@@ -55,20 +56,8 @@ function walk(root, rel, out) {
   else if (st.isFile()) out.push(rel);
   return out;
 }
-/* same rule as build-release.sh: drop lines containing <!-- dev-only -->, and every line from a line that is just
-   <!-- dev-only:begin --> through the next line that is just <!-- dev-only:end --> */
-function stripDevOnly(text, name) {
-  const out = []; let open = 0;
-  text.split("\n").forEach(function (ln, i) {
-    const t = ln.replace(/^[ \t]+|[ \t\r]+$/g, "");
-    if (t === "<!-- dev-only:begin -->") { if (open) throw new Error(name + ":" + (i + 1) + ": nested dev-only:begin"); open = i + 1; return; }
-    if (t === "<!-- dev-only:end -->") { if (!open) throw new Error(name + ":" + (i + 1) + ": dev-only:end without begin"); open = 0; return; }
-    if (open || ln.indexOf("<!-- dev-only -->") >= 0) return;
-    out.push(ln);
-  });
-  if (open) throw new Error(name + ":" + open + ": dev-only:begin never closed");
-  return out.join("\n");
-}
+/* same rule as build-release.sh: drop every line containing <!-- dev-only --> */
+function stripDevOnly(text) { return text.split("\n").filter(function (ln) { return ln.indexOf("<!-- dev-only -->") < 0; }).join("\n"); }
 function firstLineDiff(a, b) {
   const A = a.split("\n"), B = b.split("\n");
   for (let i = 0; i < Math.max(A.length, B.length); i++)
@@ -120,31 +109,29 @@ function fileParity() {
   const before = failures.length;
   if (!isFile(path.join(REL, "index.html"))) { fail("release has no index.html"); return; }
   const relFiles = walk(REL, "", []);
-  const srcFiles = ["index.html", "README.md"].filter(function (f) { return isFile(path.join(SRC, f)); })
-    .concat(walk(SRC, "css", []), walk(SRC, "js", []));
-  relFiles.forEach(function (f) { if (!isFile(path.join(SRC, f))) fail(f + ": in the release but not in the source"); });
+  const srcFiles = ["index.html"].concat(walk(SRC, "css", []), walk(SRC, "js", []));
+  relFiles.forEach(function (f) {
+    if (f !== "index.html" && !/^(css|js)\//.test(f)) fail(f + ": in the release but not part of the game (only index.html, css/ and js/ belong there)");
+    else if (!isFile(path.join(SRC, f))) fail(f + ": in the release but not in the source");
+  });
   DEV_FILES.forEach(function (f) { if (isFile(path.join(REL, f))) fail(f + ": developer file is in the release"); });
-  let same = 0, normalised = 0;
+  let same = 0;
   srcFiles.forEach(function (f) {
     if (DEV_FILES.indexOf(f) >= 0) return;
     const rp = path.join(REL, f);
     if (!isFile(rp)) { fail(f + ": missing from the release"); return; }
     const sb = fs.readFileSync(path.join(SRC, f)), rb = fs.readFileSync(rp);
-    if (f === "index.html" || f === "README.md") {
-      let want, got = rb.toString("utf8");
-      try { want = stripDevOnly(sb.toString("utf8"), f); } catch (e) { fail(e.message); return; }
-      if (f === "index.html") {
-        const stamps = got.match(META_RELEASE) || [];
-        if (want.split(META_DEV).length !== 2) { fail("index.html: the source must contain exactly one " + META_DEV); return; }
-        if (stamps.length !== 1) { fail('index.html: the release must contain exactly one <meta name="shkr-build" content="release · <sha> · <date>">'); return; }
-        want = want.replace(META_DEV, stamps[0]);
-      }
-      if (want !== got) { fail(f + ": differs from the source beyond the allowed changes (" + firstLineDiff(want, got) + ")"); return; }
-      normalised++;
+    if (f === "index.html") {
+      const got = rb.toString("utf8"), stamps = got.match(META_RELEASE) || [];
+      let want = stripDevOnly(sb.toString("utf8"));
+      if (want.split(META_DEV).length !== 2) { fail("index.html: the source must contain exactly one " + META_DEV); return; }
+      if (stamps.length !== 1) { fail('index.html: the release must contain exactly one <meta name="shkr-build" content="release · <sha> · <date>">'); return; }
+      want = want.replace(META_DEV, stamps[0]);
+      if (want !== got) { fail("index.html: differs from the source beyond the allowed changes (" + firstLineDiff(want, got) + ")"); return; }
     } else if (sha(sb) !== sha(rb)) { fail(f + ": not byte-identical (sha256 " + sha(sb).slice(0, 12) + " vs " + sha(rb).slice(0, 12) + ")"); return; }
     same++;
   });
-  if (failures.length === before) console.log("  ok: " + relFiles.length + " release files, " + same + " match the source (" + (same - normalised) + " byte-identical, " + normalised + " equal after the dev-only normalisation)");
+  if (failures.length === before) console.log("  ok: " + relFiles.length + " release files, all match the source (" + (same - 1) + " byte-identical, index.html equal after removing the dev-only lines and the stamp)");
 }
 
 /* ---------------------------------------------------------------- B. gameplay parity */

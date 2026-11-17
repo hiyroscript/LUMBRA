@@ -14,8 +14,7 @@
   const FIX = typeof FIXES !== "undefined" ? FIXES : {};
 
   /* ---------------- saved state ---------------- */
-  /* An optional global can point the save at another key (the developer build uses its own, see README "Builds").
-     Without it, which is always the case in the release build, the key is the real one. */
+  /* optional save-key override (README: Builds); without it, the real key */
   const REAL_KEY = "shadowskirr.v1";
   const KEY = (window.SHKR_DEV && window.SHKR_DEV.saveKey) || REAL_KEY, LEGACY_KEY = "lumbra.v1", DEFAULTS = { music: 0.8, shake: true, sel: 1, unlocked: 1, rec: {} };
   let S = loadState();
@@ -403,9 +402,7 @@
     showCard: showCard, hideCard: hideCard, N: N, setS: setS };
   window.__LUMBRA = window.__SHADOWSKIRR;   /* legacy alias for old test scripts / console snippets */
 
-  /* Developer-build hook. The developer build loads one more script after this one, which defines an init
-     function; it runs once the page's scripts have all run, so a script that comes later can still define it.
-     In the release build that script is absent and this does nothing. */
+  /* optional init hook (README: Builds): called once after every script has run, if one was defined; otherwise nothing */
   let devHooked = false;
   function devHook() {
     const init = window.SHKR_DEV_INIT;

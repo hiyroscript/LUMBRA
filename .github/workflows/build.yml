@@ -13,15 +13,11 @@ name: Build release
 on:
   push:
     branches: [main]
-    # Skip pushes that only touch the brief (max) or Markdown other than
-    # README.md. Order matters: include everything, drop max and all .md,
-    # then bring README.md back. (Written as `paths` because negation is
-    # what re-includes README.md, and `paths` is where GitHub documents it.)
-    paths:
-      - '**'
-      - '!max'
-      - '!**.md'
-      - 'README.md'
+    # Skip pushes that only touch the brief (max) or Markdown: none of it
+    # goes into the release, so it would only rebuild the same game.
+    paths-ignore:
+      - 'max'
+      - '**.md'
   workflow_dispatch:
 
 permissions:
