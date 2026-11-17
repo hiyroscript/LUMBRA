@@ -4,7 +4,10 @@ A rhythm runner by hiyroscript where the music and the level are the same thing.
 
 ## Play
 
-Play online at https://hiyroscript.github.io/shkr/, or open `index.html` in a browser. There is nothing to install and no build step.
+- **Developer build:** https://hiyroscript.github.io/shkr/ serves this repo as-is, and the repo is the developer build. All 30 levels are unlocked with three rainbow stars, and Settings has a developer section for unlocking, resetting and putting progress back. Opening the repo's `index.html` from disk gives the same build.
+- **Release build:** the normal game, ready to upload to itch.io, Newgrounds and similar sites. Download [`shadow-skirr.zip`](https://github.com/hiyroscript/shkr/releases/download/latest/shadow-skirr.zip) from the rolling `latest` release, or from the `shadow-skirr-release` artifact of any **Build release** run on the Actions tab. `index.html` is at the root of the zip. See [Builds](#builds).
+
+Either way there is nothing to install: open `index.html` in a browser.
 
 ## Controls
 
@@ -40,20 +43,28 @@ On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts th
 
 ```
 shkr/
-├── index.html        page markup (screens, HUD, overlay) and the script tags
+├── index.html          page markup (screens, HUD, overlay) and the script tags
 ├── css/
-│   └── style.css     UI ported from hiyroscript/vl: tokens, type, chips, bars, orb, wipe, cards and panels
+│   └── style.css       UI ported from hiyroscript/vl: tokens, type, chips, bars, orb, wipe, cards and panels
 ├── js/
-│   ├── sim.js        deterministic fixed-timestep simulation, shared by the game and the Node beatability solver
-│   ├── levels.js     the 30 hand-written charts, the hazard list (HAZ) and the home screen chart (HOME)
-│   ├── fixes.js      per-level fix-ups applied when a level compiles (currently empty)
-│   ├── demo.js       precomputed input for the home screen's attract-mode demo (DEMO_SOL)
-│   ├── music.js      sequenced Web Audio synthesis: one original track per level, built from its spec and chart
-│   ├── backdrops.js  the terrain background layer: five looping parallax strips of fog-grey silhouettes per world
-│   ├── render.js     "fog silhouette" renderer: misty sky, grey layers, black terrain, colour only on hazards
-│   └── game.js       state, clock, input, HUD, home screen, results, rebirth
+│   ├── dev-config.js   developer build only: points the save at its own key (loaded first)
+│   ├── sim.js          deterministic fixed-timestep simulation, shared by the game and the Node beatability solver
+│   ├── levels.js       the 30 hand-written charts, the hazard list (HAZ) and the home screen chart (HOME)
+│   ├── fixes.js        per-level fix-ups applied when a level compiles (currently empty)
+│   ├── demo.js         precomputed input for the home screen's attract-mode demo (DEMO_SOL)
+│   ├── music.js        sequenced Web Audio synthesis: one original track per level, built from its spec and chart
+│   ├── backdrops.js    the terrain background layer: five looping parallax strips of fog-grey silhouettes per world
+│   ├── render.js       "fog silhouette" renderer: misty sky, grey layers, black terrain, colour only on hazards
+│   ├── game.js         state, clock, input, HUD, home screen, results, rebirth
+│   └── dev.js          developer build only: rainbow unlock-all default, developer section in Settings, DEV badge (loaded last)
+├── tools/
+│   ├── build-release.sh   makes the release: the repo minus the developer code, with a guard against leaks
+│   └── parity-check.js    proves the release plays exactly like the source
+├── .github/
+│   └── workflows/
+│       └── build.yml   on every push to main: build, guard, parity check, zip, publish
 ├── README.md
-└── max               design brief
+└── max                 design brief
 ```
 
 ## How it works
@@ -63,13 +74,56 @@ shkr/
 - Each level's soundtrack is built from that level's spec (tempo, key, scale, chord progressions, instruments) and from its chart. The lead line plays on the half-beats where the level asks for an action.
 - The game clock follows the audio clock while music is playing, so input and visuals stay on the beat.
 
+## Builds
+
+One source tree, two builds:
+
+| | Developer build | Release build |
+|---|---|---|
+| Where | this repo, served as-is by GitHub Pages at https://hiyroscript.github.io/shkr/ | [`shadow-skirr.zip`](https://github.com/hiyroscript/shkr/releases/download/latest/shadow-skirr.zip), or the `shadow-skirr-release` artifact of a workflow run |
+| What | the whole repo: the game plus `js/dev-config.js` and `js/dev.js` | only what the game needs to run: `index.html`, `css/` and the game's `js/` files, with all developer code removed |
+| Progress | every level unlocked with three rainbow stars on first load | the player's own: a new save starts at level 1 with no stars |
+| Extras | developer section in Settings, DEV badge on the home screen | none |
+| Save key | `shadowskirr.dev.v1` (snapshot for "put back": `shadowskirr.dev.snapshot`) | `shadowskirr.v1` (old `lumbra.v1` saves are migrated) |
+
+The developer build needs no build step: Pages keeps deploying the `main` branch root exactly as before. Because the two builds use different save keys, the developer build never reads or writes a player's real save, even on the same origin.
+
+**Developer section** (Settings, below the normal rows). Each action asks for confirmation first, keeps the music and shake settings, and returns to the home screen.
+
+- *Unlock all (rainbow)*: every level unlocked with three rainbow stars.
+- *Reset progress*: a fresh game (level 1, no stars, no tries), to test the real first-time flow.
+- *Put progress back*: restores unlocks, stars, tries and the selected level exactly as they were right before the last reset or unlock all. Both of those save a snapshot first. One level of undo, and the button is disabled when there is no snapshot.
+
+**Release build.** `.github/workflows/build.yml` runs on every push to `main` (except pushes that only touch `max` or Markdown files, none of which go into the release) and on manual runs:
+
+1. `bash tools/build-release.sh dist/release` copies `index.html`, `css/` and `js/` and nothing else (no `README.md`, `max`, `tools/`, `.github/` or `.git`), deletes `js/dev.js` and `js/dev-config.js`, removes the `<!-- dev-only -->` lines from `index.html`, and stamps `<meta name="shkr-build" content="dev">` as `release · <short-sha> · <UTC date>`. Its guard then fails the build if the output still contains `dev.js`, `dev-config.js`, `dev-only`, `shadowskirr.dev`, the developer section's ids or text, or any definition of `SHKR_DEV` / `SHKR_DEV_INIT`; if `index.html` loads a file that is missing; or if the release holds a file that `index.html` does not load.
+2. `node tools/parity-check.js . dist/release` checks that the release holds only `index.html`, `css/` and `js/`, and that every shared file is byte-identical (`index.html` may differ only by the removed dev-only lines and the stamp), then loads `sim.js`, `levels.js`, `fixes.js` and `demo.js` from both trees in separate `vm` contexts. Every level and the home chart must compile identically, each level's solver solution must replay to the same final state, a seeded run that dies part-way must match on every tick, and the attract-mode demo (`DEMO_SOL`) must replay identically. It prints a table and names the first differing field on failure.
+3. Only if both pass: zip `dist/release` with `index.html` at the root, upload it as the `shadow-skirr-release` artifact, and replace the rolling `latest` release (tag, title "Shadow Skirr — latest build", commit SHA, date and message in the notes). A manual run on another branch builds, checks and uploads the artifact but leaves `latest` alone.
+
+The gate cannot be skipped: there is no flag for it, and it runs in the same job as the zip.
+
+To build and check locally:
+
+```sh
+bash tools/build-release.sh /tmp/shadow-skirr
+node tools/parity-check.js . /tmp/shadow-skirr
+```
+
+**The dev-only marker rule.** Anything that exists only for the developer build must be removable by the build:
+
+- A whole developer file goes in `js/` and is deleted by `tools/build-release.sh` (add it there and to `DEV_FILES` in `tools/parity-check.js`).
+- Anything else the game needs at runtime must be loaded by `index.html`, because the release keeps only `index.html` and the files it loads. A file in `css/` or `js/` that `index.html` doesn't load fails the build.
+- Any line of `index.html` that only the developer build should have ends with `<!-- dev-only -->` on the same line, like the two dev `<script>` tags.
+- Shared code (`js/*.js` other than the dev files, `css/style.css`) must not contain developer code. `js/game.js` only reads the optional `window.SHKR_DEV.saveKey` and calls `window.SHKR_DEV_INIT` if it exists, which does nothing in the release.
+
 ## Development notes
 
 - **Script load order matters.** The JS files are classic scripts that share top-level globals (`SIM`, `HAZ`, `LEVELS`, `HOME`, `FIXES`, `DEMO_SOL`, `MUSIC`, `BACKDROPS`, `RENDER`). They must load in this order, at the end of `<body>`, without `defer`, `async` or `type="module"`:
-  `sim.js` → `levels.js` → `fixes.js` → `demo.js` → `music.js` → `backdrops.js` → `render.js` → `game.js`
+  `dev-config.js` → `sim.js` → `levels.js` → `fixes.js` → `demo.js` → `music.js` → `backdrops.js` → `render.js` → `game.js` → `dev.js`
+  `dev-config.js` comes first so `game.js` sees the developer save key, and `dev.js` comes last. Both are stripped from the release, which loads `sim.js` through `game.js` only.
 - **Don't convert to ES modules** unless you also refactor the shared globals and serve the game from a local server. Modules don't share a global scope and don't load from `file://`.
-- **Save data** lives under the `localStorage` key `shadowskirr.v1`. Saves from the old `lumbra.v1` key are migrated automatically on load.
-- **Debug handle:** `window.__SHADOWSKIRR` exposes `G` (game state), `S()` (saved state), `startLevel(n)`, `keys` (input state) and `getL(n)` (compiled level). `window.__LUMBRA` is kept as a legacy alias for old scripts.
+- **Save data** lives under the `localStorage` key `shadowskirr.v1` in the release and `shadowskirr.dev.v1` in the developer build. Saves from the old `lumbra.v1` key are migrated automatically on load, for the real key only.
+- **Debug handle:** `window.__SHADOWSKIRR` exposes `G` (game state), `S()` (saved state), `startLevel(n)`, `keys` (input state), `getL(n)` (compiled level), `N` (level count), `saveState()`, `paintHome(retitle)`, `paintLevels()`, `startHome()`, `show(screen)`, `showCard({...})`, `hideCard()` and `setS(obj)`, which replaces the saved state through the same validation as loading. `window.__LUMBRA` is kept as a legacy alias for old scripts.
 - **Fonts** (Space Grotesk, JetBrains Mono) load from Google Fonts. Offline, the page falls back to system fonts.
 
 ## Credits
