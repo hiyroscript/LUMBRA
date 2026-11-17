@@ -39,11 +39,11 @@ To reproduce these numbers, concatenate `sim.js`, `levels.js` and `fixes.js` int
 ## 1. Hard rules
 
 1. **Level 1 is rebuilt too.** It is the anchor of the curve, so it must be a gentle, welcoming first minute. It uses only Bloom and plain obstacles, starts with several bars of nothing but simple spikes, keeps lots of rest and asks for no more than about 0.35 actions per beat. Keep it at 112 bpm (already a multiple of 4), its name, its theme and its instruments, unless a change clearly helps it as a first level.
-2. **Do not change the physics.** Leave all constants and rules in `step()` alone: gravity sets, jump timing, coyote and buffer windows, hitboxes (`PH`, `SH`, `HW`), `FADE` and every hazard's behaviour. The README's Hazards section must stay true word for word. If you believe a sim change is truly needed, stop and justify it in your final report first. The difficulty has to come from the charts.
+2. **Do not change the physics.** Leave all constants and rules in `step()` alone: gravity sets, jump timing, coyote and buffer windows, hitboxes (`PH`, `SH`, `HW`), `FADE` and every hazard's behaviour. The README's Hazards section must stay true word for word. The one exception is adding the new plain obstacles in §4.3, which must reuse the existing collision code and not change how any existing thing behaves. If you believe any other sim change is truly needed, stop and justify it in your final report first. The difficulty has to come from the charts.
 3. **The hazard introduction schedule stays the same:** Bloom on 1, Halo on 3, Drift on 5, and so on up to Zenith on 29 (`HAZ[].lv`). A hazard never appears before its introduction level.
 4. **Level names and themes (`th`) stay** unless a change is required.
 5. **`HOME` and `DEMO_SOL` must not change.** The parity check must still pass (see §7).
-6. Keep the chart format. Write new phrases and forms. Don't invent new characters unless you also add them to `sim.js`, the renderer and the README, which you should avoid.
+6. Keep the chart format. Write new phrases and forms. The only new chart characters allowed are the new plain obstacles in §4.3. Each one must be added to `sim.js`, the renderer, the music's action map and the README.
 
 ---
 
@@ -95,6 +95,19 @@ Starting weights: a = 0.35, b = 0.5, c = 0.6, d = 0.5, e = 0.5. Write the final 
 - Repeating a phrase is good (it's music), but no more than 3 times in a row. Vary it instead, by mirroring, shifting by half a beat or adding a hazard.
 - On a hazard's introduction level, show it first on its own and safe (a lone instance with plenty of space), then twice, then with older hazards. Introduction levels may sit slightly under their D target in the first 20 s, as long as the level as a whole meets its target.
 
+
+### 3.4 Difficulty bands
+
+The curve must also land in these bands, so the game reads as easy, then medium, then hard:
+
+| Band | Levels | Feel | Rough D (× level 1) |
+|---|---|---|---|
+| Easy | 1–9 | learning: new hazards one at a time, lots of rest, few combos | 1× to about 2× |
+| Medium | 10–20 | hazards mix regularly, tighter timing, shorter rests | about 2× to 4–5× |
+| Hard | 21–30 | dense combos, little rest, tight windows; level 30 is brutal but fair | about 4–5× up to the level-30 target |
+
+Level 10 is where the game first feels medium, and level 21 is where it first feels hard. If the chosen r puts a band edge more than one level away from these, adjust r (within the limits of §3.2) or report why. Show the band of each level in the final report's table.
+
 ---
 
 ## 4. Reuse and combine hazards
@@ -130,6 +143,32 @@ Rules for combos:
 - Each combo must have a readable cue at least 1 beat ahead, coming from the hazard's colour and the music's lead line (see §5).
 - The `combo` term of D must be measured, not just claimed.
 - Combo density by level, roughly: levels 2–6, 0–1 per minute; 7–14, 2–4; 15–22, 4–7; 23–30, 7–12.
+
+
+### 4.3 More kinds of plain obstacles
+
+Right now the levels lean almost entirely on spikes, pits and slide bars. Fix this in two ways.
+
+**First, use what already exists much more.** The chart format already has wide spikes (`M`), tall spikes (`I`), hanging walls (`'`, stay on the ground), tall walls (`!`), steps up and down (`+ # H v V Y`) and narrow and wide pits (`_ u U`). Many levels barely use them. From level 3 on, every level uses at least 6 different plain obstacle kinds, and no single kind makes up more than 35 % of a level's obstacles.
+
+**Second, add 5–6 new plain obstacles.** Like the existing ones, they take the colours of each level's scenery (not hazard colours), they kill on touch, and they are timed in beats. Starting ideas, each to be checked against the jump and slide physics so it is fair:
+
+| Obstacle | How you beat it |
+|---|---|
+| **Floating spike block** at mid height | it is too high to run under standing and too low to clear with a full jump from close up: jump early, or slide under it |
+| **Low tunnel** (a long low ceiling with spikes on top of it, 2–4 beats) | slide through the whole tunnel. Inside it you can't jump. |
+| **Spiked step edge** (a step up with a spike on its top edge) | jump onto the step from further back, so you land past the spike |
+| **Hurdle pair** (a slide bar right after a spike) | jump, then slide as soon as you land |
+| **Beat-synced crusher** (a block that drops to the ground and rises again, on a fixed beat cycle) | pass under it while it is up. It moves with the beat, so the music tells you when. |
+| **Rolling blade** on the ground, moving towards you at a fixed speed in beats | jump it at the right moment. Its sound in the lead line tells you when. |
+
+Rules for the new obstacles:
+
+- Reuse the existing collision code (deadly boxes). Anything that moves must move as a pure function of the tick, so the sim stays deterministic and replays don't change. Check that the solver's state hash (`hash(L, s)`) still separates states correctly once objects move. Fix it if it doesn't.
+- They must look different from each other and from existing obstacles at a glance, in the fog-silhouette style of `render.js`.
+- Give each its own chart character, map it in `L.chart` (1 = jump, 2 = slide, 3 = special) so the music marks it, and add it to the README's "Plain obstacles" list.
+- Bring them in gradually, the same way hazards are introduced: about one new obstacle every 4 levels, starting around level 2. Each one appears first alone and safe, then mixed with others. List the level where each new obstacle first appears in the final report.
+- Don't change `HOME`, so `DEMO_SOL` stays valid.
 
 ---
 
@@ -196,6 +235,6 @@ Update `README.md`:
 - All 30 new `LEVELS` entries in `js/levels.js`, any `music.js` changes, `tools/difficulty.js`, `tools/check-levels.js`, the workflow update and README updates.
 - A final report with:
   - the ratio r and why;
-  - a table per level: bpm, seconds, hazards used, combos per minute, D target, D actual, the largest margin that still solves, and solver steps;
+  - a table per level: bpm, seconds, hazards used, plain obstacle kinds used, combos per minute, D target, D actual, band, the largest margin that still solves, and solver steps;
   - any combos from §4.2 that didn't work, and why;
   - any place where you had to break a rule here, with a reason.
