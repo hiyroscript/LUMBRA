@@ -12,7 +12,16 @@ const SIM = (function () {
   const COY = Math.round(0.15 * TPB), BUF = Math.round(0.2 * TPB), SMIN = Math.round(0.25 * TPB);
   const FADE = Math.round(0.42 * TPB);
   const ZP = { D: "d", A: "a", T: "t", Z: "z", L: "l" };
-  const JUMPC = "^MI_uU+#H!", EMPTY = [];
+  const JUMPC = "^MI_uU+#H!%&@", EMPTY = [];
+  /* moving plain obstacles, both pure functions of the tick (so replays and the solver's state hash, which starts
+     with the tick, are unaffected): a crusher is down (on the ground) around every off-beat and up around every
+     beat; a rolling blade moves left at BLADE units per beat and reaches its cell's spike position exactly when
+     the runner does */
+  const CRUSH_UP = 2.2, BLADE = 2;
+  function crushY(tick) {
+    const p = (tick % TPB) / TPB, d = Math.abs(p - 0.5);   /* 0 on the off-beat, 0.5 on the beat */
+    return d < 0.22 ? 0 : d > 0.28 ? CRUSH_UP : CRUSH_UP * (d - 0.22) / 0.06;
+  }
 
   function expand(def) {
     let T = "", H = "", energy = [], e = 1;
@@ -54,15 +63,18 @@ const SIM = (function () {
       else if (c === "u") gaps.push([x + 0.6, x + 3.4]);
       else if (c === "U") gaps.push([x + 1, x + 5]);
       else if (c === "~") gaps.push([x, x + 2]);
-      else if (c === "+") steps.push([x + off, 1]);
+      else if (c === "+" || c === "%") steps.push([x + off, 1]);
       else if (c === "#") steps.push([x + off, 2]);
       else if (c === "H") steps.push([x + off, 4]);
       else if (c === "v") steps.push([x + 2, -1]);
       else if (c === "V") steps.push([x + 2, -2]);
       else if (c === "Y") steps.push([x + 2, -4]);
       if (h === "F" || h === "1" || h === "2") gaps.push([x, x + 2]);
-      L.chart[i] = JUMPC.indexOf(c) >= 0 || "KORC".indexOf(h) >= 0 ? 1 : c === "-" || h === "S" ? 2 : h !== "." && "BFX12Ee".indexOf(h) >= 0 ? 3 : 0;
+      L.chart[i] = JUMPC.indexOf(c) >= 0 || "KORC".indexOf(h) >= 0 || (c === "|" && i % 2 === 0) ? 1 :
+        c === "-" || c === "*" || (c === "=" && T[i - 1] !== "=") || h === "S" ? 2 : h !== "." && "BFX12Ee".indexOf(h) >= 0 ? 3 : 0;
     }
+    /* a hurdle pair asks for the slide one beat after its jump */
+    for (let i = 0; i < n; i++) if (T[i] === "&" && i + 2 < n && !L.chart[i + 2]) L.chart[i + 2] = 2;
     steps.sort(function (a, b) { return a[0] - b[0]; });
     gaps.sort(function (a, b) { return a[0] - b[0]; });
     const baseAt = function (x) { let b = 0; for (const s of steps) { if (s[0] <= x) b += s[1]; else break; } return b; };
@@ -105,6 +117,14 @@ const SIM = (function () {
       else if (c === "!") box("L", x + 1.6, x + 2.4, baseAt(x + 2), baseAt(x + 2) + 2.5, { v: "tw" });
       else if (c === "-") { const bb = baseAt(x + 1.6); box("L", x + 1.0, x + 2.6, bb + 1.0, bb + 9, { v: "bar", c: 1 }); }
       else if (c === "'") { const bb = baseAt(x + 2); box("L", x + 1.6, x + 2.4, bb + 2.0, bb + 9, { v: "st" }); }
+      /* newer plain obstacles: floating spike block, low tunnel (one box per run of "="), spiked step edge,
+         hurdle pair (spike, then a bar one beat later), beat crusher, rolling blade */
+      else if (c === "*") box("L", cx - 0.4, cx + 0.4, b + 1.1, b + 1.8, { v: "fb", c: 1 });
+      else if (c === "=") { if (T[i - 1] !== "=") { let j = i; while (T[j + 1] === "=") j++; const bb = baseAt(x + 1); box("L", x + 1, 2 * j + 3, bb + 1.0, bb + 2.6, { v: "tn", c: 1 }); } }
+      else if (c === "%") box("L", cx, cx + 0.6, b + 1, b + 1.6, { v: "ss" });
+      else if (c === "&") { const bb = baseAt(x + 2); box("L", x + 1.6, x + 2.4, bb, bb + 0.8, { v: "hs" }); box("L", x + 4.6, x + 6.2, bb + 1.0, bb + 9, { v: "hb", c: 1 }); }
+      else if (c === "|") { const bb = baseAt(x + 2); box("L", x + 1.6, x + 2.4, bb, bb + 0.9, { v: "cr", mv: 1 }); }
+      else if (c === "@") { const bb = baseAt(x + 2); box("L", x + 1.55, x + 2.45, bb, bb + 1.1, { v: "rb", mv: 2, tm: (x + 2) / DX, vx: BLADE / TPB }); }
       /* hazards */
       const tl = h === "F" || h === "1" || h === "2" ? h : "";
       if (tl) {
@@ -283,9 +303,12 @@ const SIM = (function () {
       const o = obs[i];
       if (o.flip !== s.flip) continue;
       switch (o.k) {
-        case "L":
-          if (x + HW > o.x0 - m && x - HW < o.x1 + m && y1 > o.y0 && y0 < o.y1) s.dead = o.v;
+        case "L": {
+          /* a moving obstacle is the same deadly box, shifted by a pure function of the tick */
+          const ox = o.mv === 2 ? (o.tm - s.tick) * o.vx : 0, oy = o.mv === 1 ? crushY(s.tick) : 0;
+          if (x + HW > o.x0 + ox - m && x - HW < o.x1 + ox + m && y1 > o.y0 + oy && y0 < o.y1 + oy) s.dead = o.v;
           break;
+        }
         case "bl":
           if (x + HW > o.x0 && x - HW < o.x1 && y1 > o.y0 && y0 < o.y1 && s.tick - s.bl > 16) {
             s.vy = 15; s.gr = false; s.sl = false; s.h = PH; s.dl = true; s.bl = s.tick; s.gl = 0; s.coy = 0; s.hang = -1;
@@ -394,6 +417,6 @@ const SIM = (function () {
   }
 
   return { TPB: TPB, DT: DT, UPB: UPB, DX: DX, PH: PH, SH: SH, HW: HW, CH: CH, FADE: FADE, compile: compile, expand: expand,
-    newState: newState, clone: clone, step: step, solve: solve, replay: replay, solid: solid };
+    newState: newState, clone: clone, step: step, solve: solve, replay: replay, solid: solid, crushY: crushY };
 })();
 

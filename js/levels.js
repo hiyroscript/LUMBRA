@@ -23,6 +23,15 @@ const HAZ = [
   { k: "1", ch: "1", name: "Flicker", col: "#FF3DB5", lv: 27 },
   { k: "Z", ch: "Z", name: "Zenith", col: "#6A4DFF", lv: 29 }
 ];
+/* the newer plain obstacles (scenery colours, like spikes and bars): chart character and the level that brings it in */
+const OBST = [
+  { ch: "*", name: "Floating spike block", lv: 2 },
+  { ch: "%", name: "Spiked step", lv: 6 },
+  { ch: "=", name: "Low tunnel", lv: 10 },
+  { ch: "&", name: "Hurdle pair", lv: 14 },
+  { ch: "|", name: "Crusher", lv: 18 },
+  { ch: "@", name: "Rolling blade", lv: 22 }
+];
 
 const LEVELS = [
 { n: 1, name: "Whispering Pines", th: ["peaks", "pines", "grass", "thorn", "trunk", "leaves"],
