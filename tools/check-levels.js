@@ -32,16 +32,23 @@
                 on at least 6 plain obstacle kinds, none over 35 % of them
      zones      zones of different gravity kinds (D, A, T, Z) never overlap
      repeat     no phrase is played more than 3 times in a row
-     curve      D is within ±4 % of D(1) · 1.08^(n−1) and strictly rises
+     curve      D is within ±1.5 % of D(1) · 1.10^(n−1) (target), and
+                D(n) / D(n−1) is between 1.08 and 1.12 (ratio). Both are
+                printed for every level and either one fails the run
      density    obstacle chars per bar and the longest gap between busy cells
-                stay in the level's band (tools/density.js): 2.0-2.5 and 4
-                beats on 1-9, 2.5-3.5 and 3 beats on 10-20, 3.5-4.5 and 2
-                beats on 21-30, where one breather of up to 5 beats is allowed
+                stay in the level's band (tools/density.js): 2.5-3.5 and 3
+                beats on 1-9, 3.5-5.0 and 2 beats on 10-20, 5.0-7.0 and 1.5
+                beats on 21-30, where one breather of up to 4 beats is allowed;
+                the ground never stays at one height for more than 3 bars
+     structure  a level is built from set pieces (its phrases other than the
+                empty bar): at least 6 different ones, 10 on levels 21-30, and
+                the same one never twice in a row
    Soft rules (warnings)
-     combos     per minute: 0 on level 1, 0-1 on 2-6, 2-4 on 7-14, 4-10 on
-                15-22, 7-20 on 23-30 (widened when the levels got dense: with
-                little rest left anywhere, the later levels climb the curve
-                mostly by stacking hazards)
+     combos     per minute: 0 on levels 1-2 (one hazard exists), 2-4 on 3-9,
+                5-8 on 10-20, 8-14 on 21-30
+     ceiling    from level 10, something overhead (bar, hanging wall,
+                floating spike block, tunnel, crusher, hurdle bar, Thermal
+                block, Rail) in at least a quarter of the busy cells
      energy     intro bars at 0-1, a peak at 3-4, long runs of 4 only from
                 level 24
      arc        the densest 4 bars sit 55-90 % of the way through
@@ -93,8 +100,9 @@ HAZ.forEach(function (h) {
 
 /* ---------------------------------------------------------------- per level */
 let D1 = null, prevD = 0;
-const rows = [["lv", "bpm", "sec", "hazards", "plain kinds", "combo", "D", "target", "±%", "band", "slack", "fair m", "steps", "dec12"]];
+const rows = [["lv", "bpm", "sec", "hazards", "plain kinds", "pieces", "combo", "D", "target", "±%", "×prev", "band", "slack", "fair m", "steps", "dec12"]];
 for (let n = (lo > 1 ? 1 : lo); n <= hi; n++) {
+  if (n > 1 && n < lo - 1) continue;   /* outside the range only level 1 (the anchor) and level lo − 1 (the ratio) are measured */
   const d = LEVELS[n - 1], L = api.level(n), bpm = d.mu[0], sec = (L.cells / 2) * 60 / bpm, fm = DF.fairMargin(n);
   const inRange = n >= lo;
   /* length */
@@ -107,7 +115,7 @@ for (let n = (lo > 1 ? 1 : lo); n <= hi; n++) {
   if (!rp.won) err(n, "solve", "fair path replays to " + (rp.dead || "no win"));
   const M = DF.measure(api, n, { budget: budget, sol: sf, margin: fm });
   if (n === 1) D1 = M.D;
-  if (!inRange) continue;
+  if (!inRange) { prevD = M.D; continue; }
   let dec12 = "-";
   if (n <= 20 || sel) {
     const s12 = SIM.solve(L, 0, budget, 12);
@@ -158,13 +166,18 @@ for (let n = (lo > 1 ? 1 : lo); n <= hi; n++) {
   /* phrase repeats */
   const keys = d.form.replace(/[\s0-9]/g, "");
   for (let i = 0, run = 1; i < keys.length; i++) { run = i && keys[i] === keys[i - 1] ? run + 1 : 1; if (run > 3) { err(n, "repeat", "phrase " + keys[i] + " plays " + run + " times in a row"); break; } }
-  /* curve */
-  const tg = DF.target(D1, n), dev = M.D / tg - 1;
-  if (Math.abs(dev) > DF.TOL) err(n, "curve", "D " + M.D.toFixed(3) + " is " + (dev * 100).toFixed(1) + " % from its target " + tg.toFixed(3));
-  if (n > 1 && prevD && M.D <= prevD && lo <= n - 1) err(n, "curve", "D " + M.D.toFixed(3) + " does not rise above level " + (n - 1) + "'s " + prevD.toFixed(3));
+  /* set pieces: every phrase that is not the empty bar is one structure */
+  const pieces = {}; keys.split("").forEach(function (k) { if (/[^.]/.test(d.phr[k].split("/")[0].replace(/\s+/g, "")) || (d.phr[k].split("/")[1] || "").replace(/[.\s]/g, "")) pieces[k] = 1; });
+  const needP = n >= 21 ? 10 : 6, nP = Object.keys(pieces).length;
+  if (nP < needP) err(n, "structure", "only " + nP + " different set pieces, needs " + needP);
+  for (let i = 1; i < keys.length; i++) if (keys[i] === keys[i - 1] && pieces[keys[i]]) { err(n, "structure", "set piece " + keys[i] + " twice in a row"); break; }
+  /* curve: on target, and 1.08-1.12 times the level before */
+  const tg = DF.target(D1, n), dev = M.D / tg - 1, q = n > 1 && prevD ? M.D / prevD : null;
+  if (Math.abs(dev) > DF.TOL + 1e-12) err(n, "curve", "D " + M.D.toFixed(3) + " is " + (dev * 100).toFixed(1) + " % from its target " + tg.toFixed(3) + " (max ±" + DF.TOL * 100 + " %)");
+  if (q !== null && (q < DF.RMIN - 1e-12 || q > DF.RMAX + 1e-12)) err(n, "curve", "D " + M.D.toFixed(3) + " is " + q.toFixed(3) + "× level " + (n - 1) + "'s " + prevD.toFixed(3) + " (must be " + DF.RMIN + "-" + DF.RMAX + "×)");
   prevD = M.D;
   /* soft rules */
-  const cb = M.combo, cr = n === 1 ? [0, 0] : n <= 6 ? [0, 1] : n <= 14 ? [2, 4] : n <= 22 ? [4, 10] : [7, 20];
+  const cb = M.combo, cr = n <= 2 ? [0, 0] : n <= 9 ? [2, 4] : n <= 20 ? [5, 8] : [8, 14];
   if (cb < cr[0] || cb > cr[1]) warn(n, "combos", cb.toFixed(0) + " per minute, expected " + cr[0] + "-" + cr[1]);
   const en = L.energy;
   if (en[0] > 1 || en[1] > 1) warn(n, "energy", "intro bars should be at energy 0-1");
@@ -174,8 +187,10 @@ for (let n = (lo > 1 ? 1 : lo); n <= hi; n++) {
   const per = new Array(L.bars).fill(0); M.acts.forEach(function (a) { const b = Math.floor(a.t / (4 * SIM.TPB)); if (b < L.bars) per[b]++; });
   let bw = 0, bi = 0; for (let b = 0; b + 4 <= L.bars; b++) { const v = per[b] + per[b + 1] + per[b + 2] + per[b + 3]; if (v > bw) { bw = v; bi = b; } }
   const where = (bi + 2) / L.bars; if (where < 0.55 || where > 0.9) warn(n, "arc", "densest 4 bars centre at " + Math.round(where * 100) + " % of the level");
-  rows.push([String(n), String(bpm), sec.toFixed(1), String(M.kinds.length), String(kinds.length), cb.toFixed(0), M.D.toFixed(3), tg.toFixed(3),
-    (dev >= 0 ? "+" : "") + (dev * 100).toFixed(1), DF.band(n), M.slack.toFixed(2), String(fm), String(sf.steps), dec12]);
+  const dn = DN.measure(SIM, d);
+  if (n >= 10 && dn.overhead < 0.25) warn(n, "ceiling", "something overhead in only " + Math.round(dn.overhead * 100) + " % of busy cells (aim for a third)");
+  rows.push([String(n), String(bpm), sec.toFixed(1), String(M.kinds.length), String(kinds.length), String(nP), cb.toFixed(0), M.D.toFixed(3), tg.toFixed(3),
+    (dev >= 0 ? "+" : "") + (dev * 100).toFixed(1), q === null ? "-" : q.toFixed(3), DF.band(n), M.slack.toFixed(2), String(fm), String(sf.steps), dec12]);
 }
 
 /* ---------------------------------------------------------------- report */
