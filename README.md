@@ -22,6 +22,8 @@ On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts th
 ## Features
 
 - 30 levels plus a home screen, each with its own soundtrack generated live with Web Audio. There are no audio files and no sound effects. The music is the only sound in the game.
+- Every level lasts exactly one minute, and each one is measurably harder than the one before: difficulty rises by a steady 8 % per level, from a gentle first minute to a level 30 about 9.3 times harder (see [Difficulty](#difficulty)). Levels 1-9 teach, 10-20 mix, 21-30 stack.
+- Later levels keep using every hazard the earlier ones introduced and often combine two or three at once: a Halo over a row of Fade tiles, Glass you dive through onto a Coil, a Mimic eye that reads your height inside a Thermal. Level 30 uses all 15. The music marks each combo with a short riser in the bar before it, and every special-hazard action (Bloom, Fade, Glass, Flicker, Mimic) plays an octave higher with its own glassy tone.
 - The home screen plays an attract-mode demo run behind the menu.
 - The runner is animated procedurally and stays in step with the music. The run cycle is locked to the beat: a foot strikes on every beat and half-beat, and the planted foot never slides along the ground. Jumps get a take-off crouch and a landing crouch, and a Halo air jump is a tucked front flip. Slides and dives curl into a spinning ball, and charging a Coil revs it up. Moving between poses blends smoothly instead of snapping.
 - 15 hazards, each introduced on its own level. How each one works is described in [Hazards](#hazards).
@@ -54,7 +56,13 @@ Everything in the game is timed in beats, so the timings below hold at every tem
   - bars hanging just above the ground: slide under them;
   - walls that hang down to just above your head: stay on the ground and don't jump;
   - pits: jump them;
-  - steps up and down. Running into the face of a step up kills you, so jump onto it. The tallest steps are too high for a plain jump and always come with a Bloom, Halo, Rift or Coil to get you up.
+  - steps up and down. Running into the face of a step up kills you, so jump onto it. The tallest steps are too high for a plain jump and always come with a Bloom, Halo, Rift or Coil to get you up;
+  - floating spike blocks at mid height (from level 2): too high to run under standing and too low to clear with a jump from close up. Slide under, or jump early;
+  - spiked steps (from level 6): a step up with spikes along its top edge. Jump from further back so you land past them;
+  - low tunnels (from level 10): a long, low ceiling with spikes on top. Slide through the whole of it; you can't jump inside;
+  - hurdle pairs (from level 14): a spike with a bar one beat after it. Jump the spike, then slide (or dive) as soon as you come down;
+  - crushers (from level 18): heavy blocks that pound the ground on every off-beat and lift on every beat. One you reach while it is down is a block to jump over; one you reach while it is up is overhead, so stay on the ground. The music's lead line plays on the ones to jump;
+  - rolling blades (from level 22): saws rolling towards you along the ground at half your speed. Jump them as they arrive; the lead line plays on that moment.
 
 Every hazard below has its own colour, so you can always tell it from the scenery. A **zone** hazard (Drift, Anchor, Thermal, Zenith) is a tinted band with dashed edges: its rules apply while you are inside it.
 
@@ -134,6 +142,34 @@ Floor tiles in two sets. One set is solid and the other is only a dashed outline
 
 Gravity flips. When you enter the zone you are thrown up onto the ceiling and run along it upside down, with the level mirrored above you. Jump and slide still work relative to you: jump pushes you away from the ceiling. Leaving the zone flips you back down. A gap in the ceiling is a pit like any other.
 
+## Difficulty
+
+Every level is scored with one number, **D**, measured from the level itself and from the solver's path through it:
+
+| Term | What it measures |
+|---|---|
+| `aps` | required actions per second: presses of jump or slide on a minimal winning path, plus the releases whose timing matters (dropping off a Rail, launching off a Coil) |
+| `gap` | the 10th-percentile time between consecutive actions (the fastest bursts) |
+| `slack` | the largest safety margin (0 to 0.3) the level still solves with; less slack means tighter timing somewhere |
+| `mech` | mean number of different hazards in each 2-bar window |
+| `combo` | places per minute where two different hazards are within 2 beats of each other, or one sits inside another's zone |
+| `rest` | fraction of bars with no action |
+
+```
+D = aps · (1 + 0.2·mech) · (1 + 0.15·combo/10) · (1 + 0.3·(0.3 − slack)/0.3) · (1 − 0.5·rest) · (0.25 / max(gap10, 0.12))^0.1
+```
+
+Level 1 sets the anchor, and every level n is built to land within ±4 % of `D(1) · 1.08^(n−1)`, so D rises strictly from level to level and level 30 is about 9.3 times level 1. The ratio 1.08 puts the difficulty bands where they belong: levels 1-9 are easy (1× to 2×), 10-20 medium (2× to about 4.5×), 21-30 hard (4.7× to 9.3×). `tools/difficulty.js` explains the weights.
+
+Every level is also checked for fairness: it must solve with a safety margin (0.12 on level 1, 0.08 on 2-10, 0.06 on 11-20, 0.04 on 21-30) and, on levels 1-20, with inputs changed only every 12 ticks, so no move needs a window shorter than two solver decisions.
+
+```sh
+node tools/difficulty.js          # the D table: every level's terms, D, target and band (10-20 or 1-30 also work)
+node tools/check-levels.js        # every rule: 60 s, solvable and fair, hazard reuse, obstacle variety, the curve
+```
+
+`check-levels.js` exits non-zero on any failure and runs on every release build, before the build step. It takes several minutes, because it solves every level several times.
+
 ## Project structure
 
 ```
@@ -144,7 +180,7 @@ shkr/
 ├── js/
 │   ├── dev-config.js   developer build only: points the save at its own key (loaded first)
 │   ├── sim.js          deterministic fixed-timestep simulation, shared by the game and the Node beatability solver
-│   ├── levels.js       the 30 hand-written charts, the hazard list (HAZ) and the home screen chart (HOME)
+│   ├── levels.js       the 30 hand-written charts, the hazard list (HAZ), the newer plain obstacles (OBST) and the home screen chart (HOME)
 │   ├── fixes.js        per-level fix-ups applied when a level compiles (currently empty)
 │   ├── demo.js         precomputed input for the home screen's attract-mode demo (DEMO_SOL)
 │   ├── music.js        sequenced Web Audio synthesis: one original track per level, built from its spec and chart
@@ -154,10 +190,12 @@ shkr/
 │   └── dev.js          developer build only: rainbow unlock-all default, developer section in Settings, DEV badge (loaded last)
 ├── tools/
 │   ├── build-release.sh   makes the release: the repo minus the developer code, with a guard against leaks
-│   └── parity-check.js    proves the release plays exactly like the source
+│   ├── parity-check.js    proves the release plays exactly like the source
+│   ├── difficulty.js      scores every level's difficulty D and prints it against the 1.08-per-level curve
+│   └── check-levels.js    checks every level: 60 s long, solvable and fair, hazards reused, on the curve
 ├── .github/
 │   └── workflows/
-│       └── build.yml   on every push to main: build, guard, parity check, zip, publish
+│       └── build.yml   on every push to main: level checks, build, guard, parity check, zip, publish
 ├── docs/
 │   └── hazards/        colour swatches for the README's hazard list, one SVG per hazard (colours from HAZ in js/levels.js)
 ├── README.md
@@ -193,9 +231,10 @@ The developer build needs no build step: Pages keeps deploying the `main` branch
 
 **Release build.** `.github/workflows/build.yml` runs on every push to `main` (except pushes that only touch `max`, Markdown files or `docs/`, none of which go into the release) and on manual runs:
 
-1. `bash tools/build-release.sh dist/release` copies `index.html`, `css/` and `js/` and nothing else (no `README.md`, `max`, `tools/`, `.github/` or `.git`), deletes `js/dev.js` and `js/dev-config.js`, removes the `<!-- dev-only -->` lines from `index.html`, and stamps `<meta name="shkr-build" content="dev">` as `release · <short-sha> · <UTC date>`. Its guard then fails the build if the output still contains `dev.js`, `dev-config.js`, `dev-only`, `shadowskirr.dev`, the developer section's ids or text, or any definition of `SHKR_DEV` / `SHKR_DEV_INIT`; if `index.html` loads a file that is missing; or if the release holds a file that `index.html` does not load.
-2. `node tools/parity-check.js . dist/release` checks that the release holds only `index.html`, `css/` and `js/`, and that every shared file is byte-identical (`index.html` may differ only by the removed dev-only lines and the stamp), then loads `sim.js`, `levels.js`, `fixes.js` and `demo.js` from both trees in separate `vm` contexts. Every level and the home chart must compile identically, each level's solver solution must replay to the same final state, a seeded run that dies part-way must match on every tick, and the attract-mode demo (`DEMO_SOL`) must replay identically. It prints a table and names the first differing field on failure.
-3. Only if both pass: zip `dist/release` with `index.html` at the root, upload it as the `shadow-skirr-release` artifact, and replace the rolling `latest` release (tag, title "Shadow Skirr — latest build", commit SHA, date and message in the notes). A manual run on another branch builds, checks and uploads the artifact but leaves `latest` alone.
+1. `node tools/check-levels.js` checks every level against the rules in [Difficulty](#difficulty) and stops the job on any failure.
+2. `bash tools/build-release.sh dist/release` copies `index.html`, `css/` and `js/` and nothing else (no `README.md`, `max`, `tools/`, `.github/` or `.git`), deletes `js/dev.js` and `js/dev-config.js`, removes the `<!-- dev-only -->` lines from `index.html`, and stamps `<meta name="shkr-build" content="dev">` as `release · <short-sha> · <UTC date>`. Its guard then fails the build if the output still contains `dev.js`, `dev-config.js`, `dev-only`, `shadowskirr.dev`, the developer section's ids or text, or any definition of `SHKR_DEV` / `SHKR_DEV_INIT`; if `index.html` loads a file that is missing; or if the release holds a file that `index.html` does not load.
+3. `node tools/parity-check.js . dist/release` checks that the release holds only `index.html`, `css/` and `js/`, and that every shared file is byte-identical (`index.html` may differ only by the removed dev-only lines and the stamp), then loads `sim.js`, `levels.js`, `fixes.js` and `demo.js` from both trees in separate `vm` contexts. Every level and the home chart must compile identically, each level's solver solution must replay to the same final state, a seeded run that dies part-way must match on every tick, and the attract-mode demo (`DEMO_SOL`) must replay identically. It prints a table and names the first differing field on failure.
+4. Only if all three pass: zip `dist/release` with `index.html` at the root, upload it as the `shadow-skirr-release` artifact, and replace the rolling `latest` release (tag, title "Shadow Skirr — latest build", commit SHA, date and message in the notes). A manual run on another branch builds, checks and uploads the artifact but leaves `latest` alone.
 
 The gate cannot be skipped: there is no flag for it, and it runs in the same job as the zip.
 

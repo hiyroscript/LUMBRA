@@ -143,6 +143,7 @@ const RENDER = (function () {
     L.objs.forEach(function (o) { if (o.flip) o.fb = zb(o.x); });
     L.rails.forEach(function (o) { if (o.flip) o.fb = zb(o.x0 + .1); });
     L.coils.forEach(function (o) { if (o.flip) o.fb = zb(o.x0 + .1); });
+    L.blades = L.objs.filter(function (o) { return o.v === "rb"; });
     decorate(L);
     /* props sit where the chart is quiet */
     L.props = [];
@@ -278,6 +279,64 @@ const RENDER = (function () {
         else { for (let i = 0; i < 4; i++) { const x = -hw * .7 + i * hw * .47, y0 = .7 + hsh(id * 9 + i) * 1.5; wline([x, y0, x + .05, y0 + 1.2 + hsh(id + i) * 2], .04); } slabGrass(hw, bh, id); }
       }
     }
+  }
+
+  /* ---------------- newer plain obstacles (unit space, origin at the hitbox's bottom centre, y up) ----------------
+     Each has its own silhouette so it reads at a glance: a hovering spiked block, a long spiked slab you slide
+     under, a toothed lip on a step, a striped hurdle pair, a piston crusher and a rolling saw. */
+  function teeth(x0, x1, y, h, n, dir) {
+    const tw = (x1 - x0) / n; g.beginPath();
+    for (let i = 0; i < n; i++) { const a = x0 + i * tw; g.moveTo(a, y); g.lineTo(a + tw / 2, y + h * dir); g.lineTo(a + tw, y); }
+    g.closePath(); ink();
+  }
+  function floatBlock(w, h) {
+    const hw = w / 2, b0 = .16, b1 = h - .14;
+    g.beginPath(); g.roundRect(-hw + .1, b0, w - .2, b1 - b0, .08); ink();
+    teeth(-hw + .12, hw - .12, b0, -b0, 3, 1); teeth(-hw + .12, hw - .12, b1, h - b1, 3, 1);
+    poly([-hw + .1, b0 + .08, -hw, (b0 + b1) / 2, -hw + .1, b1 - .08]); ink(); poly([hw - .1, b0 + .08, hw, (b0 + b1) / 2, hw - .1, b1 - .08]); ink();
+    wline([-hw * .45, (b0 + b1) / 2, hw * .45, (b0 + b1) / 2], .05);
+  }
+  function tunnel(w, h, lim) {
+    const hw = w / 2, slab = .95;
+    chains([-hw + .5, hw - .5], h, lim);
+    g.beginPath(); g.rect(-hw, 0, w, slab); ink();
+    for (let x = -hw + .5; x < hw - .3; x += 1) { g.beginPath(); g.arc(x, .22, .06, 0, TAU); g.fillStyle = FOG.rim; g.fill(); }
+    teeth(-hw, hw, slab, h - slab, Math.max(2, Math.round(w / .4)), 1);
+  }
+  function stepLip(w, h) {
+    g.beginPath(); g.rect(0, 0, w, .12); ink();
+    g.beginPath(); for (let i = 0; i < 3; i++) { const a = i * w / 3; g.moveTo(a, .1); g.lineTo(a + w / 6 - .06, h); g.lineTo(a + w / 3, .1); } g.closePath(); ink();
+  }
+  function stripes(x0, x1, y0, y1) {
+    g.save(); g.beginPath(); g.rect(x0, y0, x1 - x0, y1 - y0); g.clip(); g.beginPath();
+    for (let x = x0 - (y1 - y0); x < x1; x += .36) { g.moveTo(x, y0); g.lineTo(x + (y1 - y0), y1); }
+    g.lineWidth = .1; g.strokeStyle = "rgba(255,255,255,.2)"; g.stroke(); g.restore();
+  }
+  function hurdleSpike(w, h) {
+    const hw = w / 2;
+    poly([-hw, 0, -hw + .1, 0, 0, h * .7, hw - .1, 0, hw, 0, .05, h * .78, -.05, h * .78]); ink(1);
+    g.beginPath(); g.rect(-hw, h * .55, w, .16); ink(); stripes(-hw, hw, h * .55, h * .71);
+    teeth(-hw, hw, h * .71, h * .29, 3, 1);
+  }
+  function hurdleBar(w, lim) {
+    const hw = w / 2;
+    g.beginPath(); g.rect(-.07, 1, .14, lim); ink();
+    g.beginPath(); g.roundRect(-hw, 0, w, 1.05, .1); ink(); stripes(-hw, hw, .12, .93);
+  }
+  function crusher(w, h, lim) {
+    const hw = w / 2;
+    g.beginPath(); g.rect(-.11, h, .22, lim); ink(); wline([-.04, h + .2, -.04, Math.min(lim, 12)], .03);
+    g.beginPath(); g.rect(-hw - .08, h - .3, w + .16, .3); ink();
+    g.beginPath(); g.rect(-hw, .18, w, h - .48); ink(); wline([-hw * .7, h * .5, hw * .7, h * .5], .05);
+    teeth(-hw, hw, .18, -.18, 4, 1);
+  }
+  function saw(r, rot) {
+    const n = 12; g.beginPath();
+    for (let k = 0; k < n * 2; k++) { const a = rot + k / (n * 2) * TAU, rd = k % 2 ? r : r * .76; g.lineTo(Math.cos(a) * rd, Math.sin(a) * rd); }
+    g.closePath(); ink();
+    g.beginPath(); g.arc(0, 0, r * .25, 0, TAU); g.fillStyle = FOG.rim; g.fill();
+    g.beginPath(); for (let k = 0; k < 3; k++) { const a = rot + k * TAU / 3; g.moveTo(Math.cos(a) * r * .3, Math.sin(a) * r * .3); g.lineTo(Math.cos(a) * r * .62, Math.sin(a) * r * .62); }
+    g.lineWidth = .05; g.strokeStyle = FOG.rim; g.stroke();
   }
 
   /* ---------------- ground ---------------- */
@@ -974,11 +1033,20 @@ const RENDER = (function () {
       const o = L.objs[i]; if (o.x0 > right) break; if (o.x1 < left) continue;
       const pp = 1 + .1 * pulse;
       switch (o.k) {
-        case "L":
-          if (o.v === "sp" || o.v === "tw" || o.v === "bm") { at(o.x, o.y0, o.flip, o.fb); spike(o.v === "sp" ? th[3] : o.v === "tw" ? "post" : "rock", o.x1 - o.x0, o.y1 - o.y0, o.id); }
+        case "L": {
+          if (o.v === "rb") break;   /* rolling blades move ahead of their place in this list: drawn in their own pass below */
+          const w = o.x1 - o.x0, h = o.y1 - o.y0, lim = function (y) { return o.flip ? 16 : Math.min(40, camY + gy / sc + 1.5 - y); };
+          if (o.v === "fb") { at(o.x, o.y0, o.flip, o.fb); floatBlock(w, h); }
+          else if (o.v === "tn") { at(o.x, o.y0, o.flip, o.fb); tunnel(w, h, lim(o.y0)); }
+          else if (o.v === "ss") { at(o.x0, o.y0, o.flip, o.fb); stepLip(w, h); }
+          else if (o.v === "hs") { at(o.x, o.y0, o.flip, o.fb); hurdleSpike(w, h); }
+          else if (o.v === "hb") { at(o.x, o.y0, o.flip, o.fb); hurdleBar(w, lim(o.y0)); }
+          else if (o.v === "cr") { const y = o.y0 + SIM.crushY(V.x / SIM.DX); at(o.x, y, o.flip, o.fb); crusher(w, h, lim(y)); }
+          else if (o.v === "sp" || o.v === "tw" || o.v === "bm") { at(o.x, o.y0, o.flip, o.fb); spike(o.v === "sp" ? th[3] : o.v === "tw" ? "post" : "rock", o.x1 - o.x0, o.y1 - o.y0, o.id); }
           else if (o.v === "kn") { at(o.x, (o.y0 + o.y1) / 2 + .35, o.flip, o.fb); g.beginPath(); for (let k = 0; k < 16; k++) { const a = k / 16 * TAU + tNow, rd = k % 2 ? .52 : .3; g.lineTo(Math.cos(a) * rd, Math.sin(a) * rd); } g.closePath(); ink(); }
           else { at(o.x, o.y0, o.flip, o.fb); bar(o.v === "bar" ? th[4] : "stal", o.x1 - o.x0, 16, o.id, o.y1 - o.y0, o.flip ? 16 : Math.min(40, camY + gy / sc + 1.5 - o.y0)); }
           g.restore(); break;
+        }
         case "bl": {
           const since = (s.tick - s.bl) / SIM.TPB, sq = since < .35 && Math.abs(V.x - o.x) < 3 ? 1 - since / .35 : 0, w = (o.x1 - o.x0) / 2;
           at(o.x, o.y0, o.flip, o.fb); glow(COL.bl, 0, .3, 1.5 * pp); g.scale(1 + sq * .35, 1 - sq * .5);
@@ -1013,6 +1081,12 @@ const RENDER = (function () {
           g.restore(); break;
         }
       }
+    }
+    /* rolling blades: placed exactly as the simulation places them, from the runner's drawn position */
+    for (const o of L.blades) {
+      const bx = o.x + (o.tm - V.x / SIM.DX) * o.vx, r = (o.y1 - o.y0) / 2;
+      if (bx + r < left || bx - r > right) continue;
+      at(bx, o.y0 + r, o.flip, o.fb); saw(r, -bx / r); g.restore();
     }
     /* finish gate */
     if (!V.demo && L.endX > left && L.endX < right + 4) {
