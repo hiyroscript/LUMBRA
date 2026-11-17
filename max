@@ -1,82 +1,201 @@
-# Prompt: Revamp Shadow Skirr's character animations
+# Prompt: Rebuild Shadow Skirr's levels 2–30 on a steady difficulty curve, with mixed hazards and matching music
 
-You are working in the `shkr` repo (Shadow Skirr, a canvas rhythm runner by hiyroscript). Revamp every animation of the player character so it moves fluidly and believably, replace the run cycle with a real run, and turn the slide into a spinning ball (Sonic-style spin-dash look).
+You are working in the `shkr` repo (Shadow Skirr, a canvas rhythm runner by hiyroscript). Rebuild every level after level 1 so that:
 
-## Where the character lives (read these first)
+1. difficulty rises by a fixed ratio from one level to the next, from easy (level 1) to really hard (level 30);
+2. later levels keep using hazards that earlier levels introduced, and often stack several hazards together;
+3. every level lasts one minute;
+4. every soundtrack fits its new level;
+5. every level can still be played and beaten, and the solver proves it.
 
-- `js/render.js`, section `/* ---------------- the stickman ---------------- */`:
-  - `ik(ax, ay, bx, by, l1, l2, dir)`: two-bone IK used for every limb.
-  - `stick(V)`: picks hard-coded joint targets (`hip`, `neck`, `head`, `f1`/`f2` feet, `h1`/`h2` hands, `rot`, knee dir `kd`, elbow dir `ed`) per state, then applies squash/stretch, builds 5 segments and strokes them as a black silhouette (limb width `.132`, torso `.172`, head radius `.22`, 1px `FOG.rim` rim on the head, halo ring when `s.air > 0`).
-  - It is called around line ~716 inside `if (!V.dead) { ... stick(V); g.restore(); }`. Units are world units, y-up, the player is ~1.7 tall standing (`PH = 1.7`) and 0.8 sliding (`SH = 0.8`) — see `js/sim.js`.
-- `js/sim.js`: the deterministic simulation (96 ticks per beat, `TPB = 96`). State flags you animate from: `s.gr` (grounded), `s.sl` (sliding), `s.vy`, `s.hang >= 0` (hanging on a Rail), `s.gl > 0` (glide), `s.dive`, `s.air > 0` (air-jump charge/halo), `s.ch` (Coil charge while sliding), `s.flip` (gravity flip), `s.par`, events `jump`, `air`, `slide`, `coil`, `land`, `land2`, `bounce`.
-- `js/game.js`: feeds `RENDER.frame({ s, x, y, beat, time, squash, thermal, ... })`; `G.squash` is set on land/bounce events and decays at `dt * 5`.
+You may change anything else in the repo if the work needs it. Read `README.md` first. It explains the controls, all 15 hazards, the chart format and the build.
 
-## Hard rules
+---
 
-1. **Do not touch gameplay.** `js/sim.js`, `js/levels.js` and the hitbox sizes (`PH`, `SH`, `HW`) must not change. All new animation state must live in the renderer (or in `game.js` view-only state), never in `SIM` state. Run `node tools/parity-check.js` (after `tools/build-release.sh` if needed) and confirm it still passes — replays and the home demo must be bit-identical.
-2. **Keep the art style:** solid black silhouette, round caps/joins, the same line widths and head size, the light rim on the head, the halo ring for `s.air`. No new colours except existing palette entries (`FOG.rim`, `COL.*`).
-3. **Framerate independent and beat-locked.** Everything is driven by `tNow`, `V.beat` and real `dt`; the run cycle must stay locked to the music beat (`V.beat`) so steps land on the rhythm.
-4. **Respect `prefers-reduced-motion`:** keep the poses but drop purely decorative extras (secondary wobble, speed lines, spin blur), consistent with how the README describes reduced motion.
-5. Keep it performant (no per-frame allocations beyond what exists today if avoidable; no images/sprite sheets — it stays procedural vector drawing).
+## 0. Read these first
 
-## Architecture change: from snapping poses to blended poses
+- `js/levels.js`: `HAZ` (the 15 hazards, the level that introduces each, their colours) and `LEVELS` (30 charts). Each chart has `n`, `name`, `th` (theme), `mu` (`[bpm, root, scale, progA, progB, kit, bass, lead, arp, pad, swing]`), `phr` (phrases) and `form`. `HOME` is the home-screen chart.
+- `js/sim.js`: the deterministic simulation and the solver.
+  - `expand` and `compile` turn a chart into terrain and objects. The block of `if (c === ...)` / `if (h === ...)` lines is the full list of chart characters. Learn every character from it, not from memory.
+  - `step(L, s, J, S, m)` advances one tick. `m` is a safety margin: obstacle boxes grow by `m`, and catch circles shrink by `0.4·m`.
+  - `solve(L, m, budget, DEC)` is a depth-first search over inputs (none, jump, slide) every `DEC` ticks. It returns `{ok, path}`, or `{ok:false, best, cause}`.
+  - `replay(L, path, DEC, m)` plays a path back.
+- `js/music.js`: builds each level's song from `mu` and from the compiled chart. The lead plays on the half-beats where the chart asks for an action (`L.chart`: 1 = jump, 2 = slide, 3 = special). The form string's digits set the energy (0–4) of each bar. The song is `L.bars` long, followed by a closing chord.
+- `js/fixes.js` (per-level fix-ups, currently empty), `js/demo.js` (`DEMO_SOL` for the home chart, which this task must not change) and `tools/parity-check.js`.
+- `max`: the previous design brief, for the house style of these prompts.
 
-Right now every state returns fixed joint positions, so switching states (run → jump → fall → land → slide) snaps instantly. Restructure `stick(V)`:
+### Facts from the current repo
 
-- Define a **pose** object: `{ hip, neck, head, f1, f2, h1, h2, rot, kd, ed, ball }` (positions relative to the ground contact point).
-- Write one function per state that returns a target pose: `poseRun(phase)`, `poseRise(vy)`, `poseApex`, `poseFall(vy)`, `poseLand(squash)`, `poseBall(spin)`, `poseHang(t, tuck)`, `poseGlide`, `poseDive`, `poseThermal(t)`, `poseCoilCharge(ch)`.
-- Keep a small persistent **view pose** in the renderer (module-level), and each frame blend current → target with critically-damped smoothing (e.g. `k = 1 - Math.exp(-dt * 18)`, faster ~30 for landing impacts) per joint. Blend `rot` via shortest angle.
-- Reset the view pose instantly when `V.snap` is true (level start/restart) so nothing tweens in from a stale pose.
-- Add light **secondary motion**: head lags the torso slightly (spring on head offset), and hands overshoot a little on direction changes.
+| | Now |
+|---|---|
+| Level 1 | 112 bpm, 112 beats, **60.0 s**. Uses Bloom only, about 0.29 actions per beat. |
+| Levels 2–30 | 66 s to 130 s long, growing with level number (level 30 is 172 bpm, 372 beats, 129.8 s). |
+| Mixing | Most levels use only their own new hazard plus one or two others. Only level 30 mixes many. |
 
-## 1. New run cycle (the main fix)
+To reproduce these numbers, concatenate `sim.js`, `levels.js` and `fixes.js` into a single `vm` context. Top-level `const`s are not visible across separate `runInContext` calls. Then `SIM.compile` each entry of `LEVELS`. Seconds = `(cells / 2) · 60 / bpm`.
 
-The current run is just feet sliding back and forth on a cosine with a tiny bob — it reads as shuffling, not running. Replace it with a proper sprint cycle keyed to `phase = V.beat * TAU` (one stride pair per beat; tune to 2 steps per beat if it looks too slow at high BPM):
+---
 
-- **Forward lean:** torso leans ~12–18° forward (neck ahead of hip), head slightly ahead and up.
-- **Four key poses per step**, interpolated smoothly (use a keyframed cycle with Catmull-Rom or cosine easing between keys rather than a single sine):
-  1. *Contact* – front foot strikes slightly ahead of the hip, knee nearly straight; back leg extending behind.
-  2. *Down / compression* – hip at its lowest (~0.05 below neutral), stance knee bent, swing foot passing under the hip, heel tucked high toward the butt.
-  3. *Push-off* – stance leg fully extended behind and back, toe last off the ground; hip rising.
-  4. *Flight / up* – both feet off the ground briefly, hip at highest, swing knee driven forward and up (thigh near horizontal), trailing foot kicked up behind.
-- **Foot path:** stance foot planted on the ground and moving backward at running speed (no sliding/skating — the planted foot's x should move back at the world scroll speed `UPB` units per beat); swing foot travels a tall elliptical/teardrop arc (high heel recovery, then reaching forward). Make sure the knee always bends forward (`kd`) and never inverts mid-cycle.
-- **Arms:** opposite to legs, bent ~90° at the elbow, driving forward-up to about chin height and back past the hip; hands slightly in front on the forward swing. Elbow direction stays consistent.
-- **Body bob & rotation:** hip vertical bob of two bumps per stride (low at compression, high at flight); a tiny torso pitch oscillation (±3°) synced to the steps.
-- Optional (disable under reduced motion): faint dust kick from the push-off foot every step via the existing `emit`/`puff` particle helpers in render/game, very subtle.
+## 1. Hard rules
 
-## 2. Jump / air states
+1. **Level 1 stays exactly as it is** (chart and `mu`). It is the anchor of the curve, and it is already 60 s long.
+2. **Do not change the physics.** Leave all constants and rules in `step()` alone: gravity sets, jump timing, coyote and buffer windows, hitboxes (`PH`, `SH`, `HW`), `FADE` and every hazard's behaviour. The README's Hazards section must stay true word for word. If you believe a sim change is truly needed, stop and justify it in your final report first. The difficulty has to come from the charts.
+3. **The hazard introduction schedule stays the same:** Bloom on 1, Halo on 3, Drift on 5, and so on up to Zenith on 29 (`HAZ[].lv`). A hazard never appears before its introduction level.
+4. **Level names and themes (`th`) stay** unless a change is required.
+5. **`HOME` and `DEMO_SOL` must not change.** The parity check must still pass (see §7).
+6. Keep the chart format. Write new phrases and forms. Don't invent new characters unless you also add them to `sim.js`, the renderer and the README, which you should avoid.
 
-- **Takeoff anticipation:** on the `jump` event, a quick 2–3 frame view-only crouch-then-extend (the sim jumps instantly, so do it as an overshoot: start the rise pose with legs fully extended and arms flung up, blending from the crouch).
-- **Rise (`vy > 0`):** one knee tucked high, the other leg trailing, arms swept up/back; body stretches vertically (existing stretch is fine but should ease).
-- **Apex (|vy| small):** a brief float pose — limbs more spread, slight forward tuck.
-- **Fall (`vy < 0`):** legs reach down and slightly forward to prepare for landing, arms rise up and out for balance; blend continuously by `vy` rather than flipping at 0.
-- **Air jump (`air` event):** a quick front flip or tuck-spin (full 360° `rot` over ~0.35 s, tucked) so the double jump is clearly different from the first jump.
-- **Landing (`land`/`land2`/`bounce`):** keep `G.squash`, but add a real landing pose: knees bend deep, hip drops, arms swing down-forward, then recover into the run over ~0.12 s (heavier for `land2`). Make the recovery blend into the correct run phase instead of popping.
-- **Gravity flip (`s.flip`):** verify every new pose (including the ball) mirrors correctly when gravity is flipped.
+---
 
-## 3. Slide → spinning ball (Sonic-style)
+## 2. One minute per level
 
-Replace the lying-down slide pose with the character curling into a ball and spinning:
+- Every level from 2 to 30 must last **60 s** from the first beat to the end of the chart: `cells / 2 = bpm` beats. The 2-beat run-out after the chart (`endX = 2n + 8`) doesn't count.
+- A chart is made of 8-cell bars (4 beats each), so the beat count must be a multiple of 4. **Choose every bpm as a multiple of 4.** Then `bars = bpm / 4` and the level is exactly 60.0 s.
+- Tempo curve: from 112 (level 1) to about 172–180 (level 30). Tempo never goes down, and it rises by 0 or 4 bpm per level, so it carries part of the difficulty without becoming the only lever.
+- Write a check that fails if any level is not 60.0 s (±0.05 s).
 
-- **Transform in (~0.08–0.12 s) on the `slide` event:** limbs pull in toward the hip (knees to chest, arms wrapped, head tucked) while the whole figure rotates forward; blend the pose toward a tight tuck and fade into the ball drawing.
-- **Ball:** a solid black circle sitting on the ground, radius fitted to the slide hitbox (diameter ≈ `SH` = 0.8, so r ≈ 0.38–0.4; check the visual still fits under low ceilings the slide is used for). Keep the light rim (`FOG.rim`, 1px) around the ball the same way the head has one.
-- **Spin:** rotation angle accumulates from distance travelled (`angle -= distance / r`) so it rolls without slipping, plus extra speed for flair. Show the spin with 2–3 curved spike/quill arcs or a crescent "swoosh" cut-out drawn in `FOG.rim` inside the ball, plus a hint of the head/eye shape on the leading side, so the rotation is readable on a black silhouette.
-- **Motion blur (skip under reduced motion):** 2–3 faint trailing arcs or ghosted circles behind the ball, and small ground sparks/dust using the existing particle system.
-- **Coil charge (`s.ch > 0` while sliding on a Coil):** spin-dash rev — the ball spins faster the longer the charge (scale with `s.ch`), vibrates slightly, and squashes against the ground; dust spits out behind. On the `coil` launch event, burst out of the ball into an extended rising pose with a stretch.
-- **Transform out:** when `s.sl` becomes false (or on jumping out of a slide), unroll back into the run/jump pose over ~0.1 s, matching the current run phase.
-- **Dive (`s.dive`, slide held in the air):** consider curling into the ball in the air too, spinning while it drops, so slide input consistently means "ball". Keep the existing dive pose if it reads better — justify your choice.
+---
 
-## 4. Other states to polish
+## 3. The difficulty curve
 
-- **Rail hang (`s.hang >= 0`):** natural pendulum swing driven by a damped spring (body swings back when grabbing, then settles), hands locked on the rail, legs trailing behind the hip with lag; tuck pose (slide held) pulls knees up smoothly instead of snapping. Smooth release when dropping off.
-- **Glide (`s.gl > 0`):** a stable superhero/arms-out glide with gentle bob and trailing legs flutter.
-- **Thermal (`V.thermal`):** floating updraft pose with slow, flowing limb motion (two out-of-phase sines with different periods so it doesn't look mechanical).
-- **Death:** currently the character just disappears (`if (!V.dead)`). If a death particle burst exists in `game.js`, leave it, but optionally add a 1–2 frame hit-pose before vanishing. Do not change death timing.
-- **Win / level clear and home demo:** make sure the new run looks right in the attract-mode demo on the home screen and at the finish.
+### 3.1 Measure difficulty, don't guess it
 
-## Deliverables & verification
+Write `tools/difficulty.js`. It runs in Node, loads the game's files the same way the parity check does, and prints one row per level. Score each level with a single number **D** built from things you can measure on the compiled level and on the solver's path:
 
-1. Refactored `stick()` (and any small helpers) in `js/render.js`; any view-only event hooks needed in `js/game.js` (e.g. recording `jump`/`air`/`slide`/`coil` event times for transitions).
-2. `node tools/parity-check.js` passes unchanged.
-3. Open `index.html` and check, at several BPMs (slow early levels and fast late ones): run cycle (no foot skating, knees never invert), jump/apex/fall/land blends, double jump flip, slide→ball→unroll, coil spin-dash, rail hang, glide, thermal, gravity flip, low ceilings while in ball form, and reduced-motion mode.
-4. Record a short GIF or screenshots of each state, and write a brief summary of what changed and any tunable constants (put them in one clearly named constants block at the top of the stickman section so they're easy to tweak).
+| Term | What it measures |
+|---|---|
+| `aps` | required actions per **second** (non-zero `L.chart` cells, or presses and releases on the solver path, divided by 60) |
+| `gap` | median and 10th-percentile time between consecutive required actions, in seconds |
+| `slack` | the largest margin `m` the level still solves with (search 0 to 0.3 in steps of 0.02). Less slack means tighter timing. |
+| `mech` | mean number of distinct hazard mechanics active in any 2-bar window (zones count while you are inside them) |
+| `combo` | number of places per minute where two or more different hazards must be handled within 2 beats of each other, or one hazard sits inside another's zone |
+| `rest` | fraction of bars with no required action (breathing room, which lowers D) |
+
+Combine them with a formula of this shape, and tune the weights so the ranking matches how the levels feel:
+
+```
+D = aps · (1 + a·mech) · (1 + b·combo/10) · (1 + c·(0.3 − slack)/0.3) · (1 − d·rest) · (0.25 / max(gap10, 0.12))^e
+```
+
+Starting weights: a = 0.35, b = 0.5, c = 0.6, d = 0.5, e = 0.5. Write the final weights and the reasoning behind them in a comment at the top of the tool.
+
+### 3.2 The target ratio
+
+- Target `D(n) = D(1) · r^(n−1)`, with each level allowed to be within ±4 % of its target. D must strictly increase from level to level.
+- The proposed r is **1.10**. That gives 1.1^29 ≈ **15.9× harder** at level 30 than at level 1. Check whether that is reachable before committing to it:
+  - a run can ask for at most 2 actions per beat, and the tempo only rises about 1.6×;
+  - so roughly 2× of the difficulty must come from density and the rest from mixing, tight timing and less rest.
+- If 15.9× would make the last levels unbeatable, or only beatable at margin 0 (frame-perfect), lower r. The repo owner said this is allowed. Use **r = 1.08** (≈ 9.3×) or the largest r between 1.07 and 1.10 that keeps level 30 solvable with margin ≥ 0.04 and never makes a level frame-perfect.
+- Report the r you chose and why, together with the D table (target versus actual).
+- The goal is "easy to really hard". Level 30 must feel brutal but fair. Levels 2–5 must still feel gentle.
+
+### 3.3 Shape inside each level
+
+- Each level is a one-minute song with an arc: intro (about 2 bars, no hazards) → build → peak (the hardest 4–8 bars, around 70–85 % of the way through) → a short release → a clean finish.
+- Repeating a phrase is good (it's music), but no more than 3 times in a row. Vary it instead, by mirroring, shifting by half a beat or adding a hazard.
+- On a hazard's introduction level, show it first on its own and safe (a lone instance with plenty of space), then twice, then with older hazards. Introduction levels may sit slightly under their D target in the first 20 s, as long as the level as a whole meets its target.
+
+---
+
+## 4. Reuse and combine hazards
+
+### 4.1 Reuse
+
+- From level 4 on, every level uses **at least 3 different hazards**. From level 12 on, at least 5. From level 20 on, at least 7. Level 30 uses all 15.
+- Over any 3 levels in a row, every hazard introduced at least 4 levels earlier should appear at least once, so nothing is forgotten. Write a check that lists any hazard gap longer than 6 levels.
+- Plain obstacles (spikes, bars, walls, pits, steps) are still the base of every level.
+
+### 4.2 Combinations: what "multiple hazards at a time" means
+
+Build **combo phrases**, where the runner has to deal with two or three mechanics at once or back to back with no ground in between. Examples to start from. **Check each one against `step()`** and drop or rework any that don't work:
+
+| Combo | Idea |
+|---|---|
+| Halo + Fade | jump through a Halo over a Fade row, using the air jump to reach the far tile |
+| Drift + Prism | catch the Prism crystal on a long floaty jump, then pass the gate |
+| Anchor + Fade | fast, short hops across tiles in heavy gravity |
+| Rail + Rift | lift up through a Rift and grab a high Rail |
+| Rail + spiked blade + Bloom | drop off before the blade, then bounce back up to the rail |
+| Comet + Fade / pit | glide off a fading tile across a wide pit |
+| Thermal + Mimic | the eye reads your height inside the updraft, and the beam fires after the zone |
+| Glass + Coil | dive through Glass and land on a Coil, then charge and launch out |
+| Flicker + Halo | the Halo's air jump also swaps the tiles, so count it |
+| Flicker + Bloom | Bloom bounces don't swap tiles: a trap for players who count every launch |
+| Zenith + Prism / Halo | the same hazards, upside down |
+| Drift → Anchor | gravity changes in the middle of a run of pits |
+
+Rules for combos:
+
+- **Zones of different gravity kinds must not overlap.** `step()` checks D, then A, then T, then Z, and takes the first one it finds, so overlapping them gives confusing physics. Back-to-back zones are fine. Check how Z, T and L behave together in the source before putting them side by side.
+- Each combo must have a readable cue at least 1 beat ahead, coming from the hazard's colour and the music's lead line (see §5).
+- The `combo` term of D must be measured, not just claimed.
+- Combo density by level, roughly: levels 2–6, 0–1 per minute; 7–14, 2–4; 15–22, 4–7; 23–30, 7–12.
+
+---
+
+## 5. Rework the music
+
+The music is built from each chart, so the lead line already follows the new actions. That is not enough on its own:
+
+1. **Tempo:** set `mu[0]` to the bpm from §2.
+2. **Energy (form digits):** rewrite them to follow each level's arc. Use 0–1 for the intro, 2 for the build, 3–4 for the peak and a short drop before the finish. Later levels spend more bars at 3–4. Only levels 24 and up may use 4 for long stretches.
+3. **Progressions, scale, kit, bass, lead, arp, pad, swing:** keep each level's identity. Change them only where the new tempo or mood needs it. For example, a sparse instrument may need a tighter envelope at 170 bpm. Don't set swing on levels where swing makes off-beat actions harder to read, unless that is the point.
+4. **Combo cues in `js/music.js`.** Add a view-and-audio-only layer, with no gameplay effect:
+   - a short fill or riser in the bar before each combo phrase. Detect combos from the compiled level (several distinct hazard characters in `L.H` within 2 beats, or a hazard inside a zone) or from data you add to the level definition;
+   - a distinct timbre, or an octave lift, on the lead for notes that fall on special-hazard cells (`chart == 3`), so a Fade, Glass or Flicker action sounds different from a plain jump.
+   Keep the rule that the music is the only sound: still no sound effects.
+5. **Length:** the song must end with the chart. `L.bars` drives this, so check that the closing chord lands at 60 s.
+6. Listen-check every level if you can (open `index.html` and play each one). If you can't, render each song offline (`music.js` has an offline path: `until = ... offline ? 1e9`) and check its length and that it starts and stops cleanly.
+
+---
+
+## 6. Playability: every level must be beatable, and fair
+
+For every level 2–30:
+
+1. `SIM.solve(L, m, budget)` must succeed with `m = 0` **and** with a fairness margin. Use `m ≥ 0.08` for levels 2–10, `m ≥ 0.06` for 11–20 and `m ≥ 0.04` for 21–30. Raise the budget above `6e6` if needed, and report the budget you used.
+2. Replay the solver path with `SIM.replay` and confirm `won === true`.
+3. No step needs an input in a window shorter than 2 solver decisions (`DEC = 6` ticks). Measure this by running the solver with `DEC = 12` and checking that it still solves levels 2–20. If it fails on some of them, report which and why.
+4. No blind jumps: the screen shows about 15 world units ahead (check `render.js` for the real view width), so every hazard that needs a reaction has to be on screen at least 1 beat (4 units) before the input it needs.
+5. Write `tools/check-levels.js`, which runs checks 1–3 plus the 60 s check (§2), the hazard reuse check (§4.1) and the D table (§3). It exits non-zero on any failure. Add it to `.github/workflows/build.yml` before the build step.
+6. Keep `js/fixes.js` empty if you can. Fix charts in `levels.js` instead.
+
+---
+
+## 7. Keep the build working
+
+- Run `bash tools/build-release.sh /tmp/shadow-skirr` and `node tools/parity-check.js . /tmp/shadow-skirr`. Both must pass. The parity check re-solves every level, so it must solve the new ones within its budget. If it can't, raise `SOLVE_BUDGET` in `tools/parity-check.js` and say so.
+- `DEMO_SOL` must replay identically. You don't touch `HOME`, so it should.
+- Load `index.html` in a browser (or a headless check): no console errors, the home screen works, every level starts, the level-select cards show the right names, and saving progress still works. The level count stays 30.
+
+---
+
+## 8. Docs
+
+Update `README.md`:
+
+- Features: say each level is one minute long, that difficulty rises steadily, that later levels mix hazards, and what the curve is (the ratio you chose).
+- Add a short section, "Difficulty", that explains D, the ratio, and how to run `tools/check-levels.js` and `tools/difficulty.js`.
+- Add the new tools to the project structure tree.
+- Leave the Hazards section unchanged (the physics doesn't change).
+
+---
+
+## 9. Work plan
+
+1. Read the files in §0. Run the current levels through the solver and `difficulty.js` to get a baseline, with level 1's D as the anchor.
+2. Decide r (§3.2) from the feasibility numbers.
+3. Set the tempo table and bar counts (§2).
+4. For each level from 2 to 30 in order, write its phrases and form, then run `check-levels.js` on it alone. Tune it until it is within ±4 % of its D target and passes every fairness check. Don't go back and rewrite earlier levels unless the curve needs it.
+5. Rework the music (§5).
+6. Run every check, the release build and the parity check, then update the docs.
+7. Commit in logical steps: tools, levels 2–10, 11–20, 21–30, music, docs.
+
+## 10. Deliverables and final report
+
+- New `LEVELS[1..29]` in `js/levels.js`, any `music.js` changes, `tools/difficulty.js`, `tools/check-levels.js`, the workflow update and README updates.
+- A final report with:
+  - the ratio r and why;
+  - a table per level: bpm, seconds, hazards used, combos per minute, D target, D actual, the largest margin that still solves, and solver steps;
+  - any combos from §4.2 that didn't work, and why;
+  - any place where you had to break a rule here, with a reason.
