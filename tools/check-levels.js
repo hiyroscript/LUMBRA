@@ -33,16 +33,22 @@
      zones      zones of different gravity kinds (D, A, T, Z) never overlap
      repeat     no phrase is played more than 3 times in a row
      curve      D is within ±4 % of D(1) · 1.08^(n−1) and strictly rises
+     density    obstacle chars per bar and the longest gap between busy cells
+                stay in the level's band (tools/density.js): 2.0-2.5 and 4
+                beats on 1-9, 2.5-3.5 and 3 beats on 10-20, 3.5-4.5 and 2
+                beats on 21-30, where one breather of up to 5 beats is allowed
    Soft rules (warnings)
-     combos     per minute: 0 on level 1, 0-1 on 2-6, 2-4 on 7-14, 4-7 on
-                15-22, 7-12 on 23-30
+     combos     per minute: 0 on level 1, 0-1 on 2-6, 2-4 on 7-14, 4-10 on
+                15-22, 7-20 on 23-30 (widened when the levels got dense: with
+                little rest left anywhere, the later levels climb the curve
+                mostly by stacking hazards)
      energy     intro bars at 0-1, a peak at 3-4, long runs of 4 only from
                 level 24
      arc        the densest 4 bars sit 55-90 % of the way through
    ========================================================================== */
 "use strict";
 const path = require("path");
-const DF = require("./difficulty.js");
+const DF = require("./difficulty.js"), DN = require("./density.js");
 
 const args = process.argv.slice(2), root = path.resolve(__dirname, "..");
 let budget = 6e6, sel = null;
@@ -143,6 +149,8 @@ for (let n = (lo > 1 ? 1 : lo); n <= hi; n++) {
   const kinds = Object.keys(cnt), top = kinds.reduce(function (a, k) { return cnt[k] > (cnt[a] || 0) ? k : a; }, "");
   if (n >= 3 && kinds.length < 6) err(n, "obstacles", "only " + kinds.length + " plain obstacle kinds (" + kinds.join(" ") + "), needs 6");
   if (n >= 3 && tot && cnt[top] / tot > 0.35) err(n, "obstacles", "'" + top + "' is " + Math.round(cnt[top] / tot * 100) + " % of the plain obstacles (max 35 %)");
+  /* density */
+  DN.measure(SIM, d).fails.forEach(function (f) { err(n, "density", f); });
   /* zones */
   const gz = L.zones.filter(function (z) { return GRAV[z.k]; });
   for (let i = 0; i < gz.length; i++) for (let j = i + 1; j < gz.length; j++)
@@ -156,7 +164,7 @@ for (let n = (lo > 1 ? 1 : lo); n <= hi; n++) {
   if (n > 1 && prevD && M.D <= prevD && lo <= n - 1) err(n, "curve", "D " + M.D.toFixed(3) + " does not rise above level " + (n - 1) + "'s " + prevD.toFixed(3));
   prevD = M.D;
   /* soft rules */
-  const cb = M.combo, cr = n === 1 ? [0, 0] : n <= 6 ? [0, 1] : n <= 14 ? [2, 4] : n <= 22 ? [4, 7] : [7, 12];
+  const cb = M.combo, cr = n === 1 ? [0, 0] : n <= 6 ? [0, 1] : n <= 14 ? [2, 4] : n <= 22 ? [4, 10] : [7, 20];
   if (cb < cr[0] || cb > cr[1]) warn(n, "combos", cb.toFixed(0) + " per minute, expected " + cr[0] + "-" + cr[1]);
   const en = L.energy;
   if (en[0] > 1 || en[1] > 1) warn(n, "energy", "intro bars should be at energy 0-1");
