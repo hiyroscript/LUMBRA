@@ -1,64 +1,147 @@
-# Prompt: make Shadow Skirr's levels dense, like Geometry Dash
+# Prompt: Shadow Skirr (hiyroscript/shkr): Geometry Dash–style level rework, 1.10× difficulty curve, new music
 
-## The problem
+You are working in the `hiyroscript/shkr` repo (Shadow Skirr, a one-minute-per-level rhythm runner). Read `README.md`, `max` (the design brief), `js/levels.js`, `js/sim.js`, `js/music.js`, `js/render.js`, `js/fixes.js` and every file in `tools/` before you change anything. Then rebuild all 30 levels and their soundtracks as described below.
 
-The levels in `js/levels.js` feel like one obstacle, then a long stretch of running on empty ground, then another obstacle. Players are bored between obstacles. The game needs **more obstacles, more often**. Nearly every beat should ask the player for something or set up the next thing.
+I've attached four Geometry Dash screenshots as the visual and design reference. They're attached to this message, so look at them before you design anything.
 
-Measured from the current charts (each chart char is half a beat; counting non-`.` chars in the terrain row):
+---
 
-| Levels | Obstacle chars per bar | Median gap | Longest empty gap |
-|---|---|---|---|
-| 1–6 | ~1.1–1.3 | 2.5–3 beats | 8–13 beats |
-| 7–12 | ~1.4–1.7 | 2 beats | 10–17 beats (L9: 17) |
-| 13–22 | ~1.8–2.4 | 0.5–2 beats | 7–12.5 beats |
-| 23–30 | ~2.3–3.1 | 1 beat | 9–15.5 beats (L27: 15.5) |
+## 0. The rules that cannot be broken (in priority order)
 
-The cause is in the phrase dictionaries: most phrases are 8 chars (one bar) with a single obstacle, like `a: "....^..."`, and filler phrases `i: "........"` are scattered through the `form` strings, not just at the intro and outro. One obstacle per bar at 112-176 bpm is 2 to 3 seconds of empty running every time.
+1. **Every level must be exactly 1.10× harder than the one before it.** This is the most important rule in the task. It overrides the README, the `max` brief, code comments and any existing tool or test that says otherwise, including the current `R = 1.08`. If anything in the repo conflicts with 1.10, change the repo, not the rule. (Details in §4.)
+2. **Do not change how any hazard works.** `js/sim.js` physics, hazard rules, timings (jump = 1 beat, Fade = 0.42 beats, Coil min charge 0.15 beats, and so on), hitboxes and the 96-ticks-per-beat timestep all stay exactly as they are. The README's Hazards section must still be true word for word after your changes. You're changing *where* things go, *how many* there are and *what they're combined with*, not *what they do*.
+3. **Every level stays exactly 60 seconds, stays solvable and stays fair**, using the existing margins (0.12 on level 1, 0.08 on levels 2–10, 0.06 on 11–20, 0.04 on 21–30) and the 12-tick input rule on levels 1–20.
+4. **Hazard introductions stay where they are** (Bloom on level 1, Halo on 3 … Zenith on 29, plus the plain obstacles from `OBST`). Later levels keep reusing everything introduced earlier, and level 30 uses all 15.
 
-## How Geometry Dash does it (copy these ideas)
+---
 
-1. **No dead air.** Outside the opening few seconds and short breathers, something is always on screen and the next input is never more than about 1–2 beats away. Even "easy" GD levels (Stereo Madness, Back on Track) put spikes, blocks and pads every beat or two.
-2. **Obstacles come in clusters, not singles.** A section is a *sequence*: spike, spike, step up, platform, triple spike off the edge, pad, landing. Each obstacle leads into the next. A jump often lands you directly in front of the next thing.
-3. **Rhythm is the layout.** Inputs land on the beat and on strong off-beats. Clusters follow the music: a drum fill becomes a run of quick jumps; a drop becomes the densest part.
-4. **Decoration counts as "something happening".** Even when no input is needed, there is terrain variation: steps up and down, platforms, ceilings, pillars. The ground is rarely a flat empty line. Use steps (`/` `\`-style terrain and the step chars this game already has), walls and bars that you pass safely, and harmless scenery changes to fill the eye.
-5. **Breathers are short and deliberate.** A rest is 1–2 bars at most, placed right before a big section or after a hard one, never randomly.
-6. **Repetition with variation.** A pattern appears, then appears again slightly changed (one spike becomes two, a jump becomes a pad). That is how GD builds density without becoming unreadable.
-7. **Easy means simple inputs, not few inputs.** Level 1 should still have an obstacle almost every beat or two; it is easy because the inputs are single jumps with generous timing, not because the screen is empty.
+## 1. Goal: Geometry Dash–level creativity and density
 
-## What to change
+The current charts are mostly flat ground with one obstacle after another. Rebuild every chart so it reads like a hand-built Geometry Dash level: layered, vertical, full of set pieces, and busy at every moment. Use the reference images like this:
 
-Work in `js/levels.js`. Do not change `js/sim.js` physics or hazard rules.
+| Reference | What to take from it | How to express it with existing Shadow Skirr pieces |
+|---|---|---|
+| Image 1 (lava, hanging spiked blocks on chains, orbs, pillars, portal) | Hazards hanging from the ceiling at several heights; raised blocks to land on between gaps; a floor that kills you; orbs that chain jumps across a gap | Crushers and floating spike blocks (`*`) at staggered heights over pits; tall steps reached with Bloom/Halo/Rift; Halo chains standing in for jump orbs; pits as the "lava" floor between platforms |
+| Image 2 (ice castle, chains, sloped ramps, spike bed, ship section) | A sunken spike bed you have to fly or arc over; terrain that climbs in stages; long airborne sections | Long pit runs crossed with Drift, Comet glides, Thermal or Rail; staircases of steps up and down; spiked steps (`%`) as ramp edges |
+| Image 3 (pink grid, three yellow orbs over a spike floor) | An orb chain over a continuous deadly floor, with a pillar at each end | Rows of Halos (and Comet / Fade tiles) over long pits, starting from a spiked step and ending on a tall step |
+| Image 4 (fireballs, portal, gravity arrows, 44%) | Dense, overlapping hazards; gravity or mode changes in the middle of a sequence; collectibles in tight lines | Zenith and Anchor/Drift zones layered with Prism, Mimic, Glass and Flicker inside them; sequences where you switch zone in the middle of a combo |
 
-1. **Rewrite the phrase dictionaries so a typical bar holds 2–4 obstacles** instead of one. Build multi-obstacle clusters: e.g. `"..^.^.^."`, `"^..^.-.."`, `"..^...^^"`, step-up then spike on the step, hurdle chains. Keep at least some single-obstacle phrases for variety.
-2. **Remove filler from the middle of `form` strings.** `i` (empty bar) should appear only in the intro (the first 2 bars must stay hazard-free, rule `intro`) and at most once more as a one-bar breather before a peak. Replace other `i`s with real phrases.
-3. **Target density by band** (obstacle chars per bar, counted the same way as the table above):
-   - levels 1–9: 2.0–2.5, longest empty gap ≤ 4 beats after the intro
-   - levels 10–20: 2.5–3.5, longest empty gap ≤ 3 beats
-   - levels 21–30: 3.5–4.5, longest empty gap ≤ 2 beats (except one breather bar before the climax)
-4. **Make sections, not shuffles.** Each level should read as 4–6 clear sections (intro, build, first peak, short breather, climax, outro) matching the energy digits in `form`. The densest 4 bars should sit 55–90 % through (soft rule `arc`).
-5. **Keep every hazard's teaching level gentle.** On the level that introduces a hazard, surround its first appearance with simple plain obstacles, not other hazards; density can come from spikes and bars.
-6. **Use the full plain-obstacle set** (`^ M I ! - ' _ u U + # H` and the newer `* % = & | @` from their level) so dense sections don't become a wall of the same spike. Rule `obstacles`: at least 6 kinds from level 3, none over 35 %.
+### Placement principles (apply to every level, scaled by its difficulty)
 
-## Constraints you must keep (all checked by `node tools/check-levels.js`)
+- **No flat filler.** The ground almost never stays at one height for more than about 2 bars. Use steps up and down, tall steps, pits and Glass shelves so the run has a real height profile: high routes, low routes, drops and climbs.
+- **Set pieces, not single obstacles.** Build every section from small, named "structures": a castle gate (Prism + gate + low tunnel), an orb bridge (a Halo chain over a pit), a crusher hall, a spike bed (a pit run under a Comet/Rail), a tower climb (Rift → tall step → Bloom → tall step). Each level needs at least 6 distinct structures, and levels 21–30 need at least 10. Don't reuse the same structure twice in a row.
+- **Use the ceiling.** Walls hanging down, bars, floating spike blocks and crushers should make the space above you as busy as the ground, the way the hanging spiked blocks are in image 1. Aim for something overhead in roughly a third of busy cells on levels 10 and up.
+- **Layered hazards.** One input should often answer two threats at once (a jump that clears a spike *and* collects a Halo *and* passes a Mimic eye in the air). Combos ramp up: about 2–4 per minute on 1–9, 5–8 on 10–20 and 8–14 on 21–30.
+- **Every half-beat that looks dangerous is dangerous.** No decoration that looks deadly but isn't, and no deadly thing that's hidden. Terrain can be decorated using scenery colours only (`th` palette); hazard colours stay reserved for hazards.
+- **Visual rhythm matches the music.** Structures start on bar lines and peak on the level's energy-4 bars, the same way GD drops land on the music.
+- **Variety per world.** Each level's `th` theme should shape the structures (rooftops → stepped skylines and pipes as bars; harbour → long plank bridges over pits; and so on).
+- **Readable at speed.** Leave a clear half-beat of read time before any new mechanic switch (a zone entry, a Flicker set, a Mimic beam), even on level 30.
 
-- Every chart is exactly 60.0 s; bpm and bar count unchanged.
-- Solvable at margin 0 and at the fairness margin (0.12 / 0.08 / 0.06 / 0.04), and levels 1–20 still solve with an input change only every 12 ticks (`dec12`). Denser must still be fair: no two inputs closer than a solver can handle at that level's margin.
-- `view`: nothing needs a reaction beyond what is on screen.
-- Hazard introduction order, reuse rules, zone overlap and the 3-in-a-row phrase repeat limit stay as they are.
-- **Difficulty curve:** D for every level must still sit within ±4 % of `D(1) · 1.08^(n−1)` and rise strictly. Raising density raises `aps` and lowers `rest`, so D(1) rises too and the whole curve rescales. That is expected and fine: rebalance every level against the new D(1), keeping the 8 % steps. Use difficulty from timing tightness and hazard mixing for later levels, and density for all levels. If a level overshoots its target, lower it with simpler inputs (single jumps, wider timing), not by adding empty bars back.
-- Update the soft `combos` ranges in `check-levels.js` and the README only if the new density genuinely needs it, and say so.
+### Terrain and obstacle vocabulary
 
-## Steps
+Use only chart characters the compiler and sim already support, combined in new ways. If a GD-style shape (a slope, say) can't be built from existing pieces, approximate it with a staircase of steps. **Don't add new collision types, new hazard rules or new physics.** If you believe a new purely visual terrain piece is needed (for example, chains drawn above a crusher), it has to be render-only with no effect on collision, and you need to say so in your summary.
 
-1. Run `node tools/difficulty.js` and save the current table for comparison.
-2. Write a small script (in `tools/`, e.g. `tools/density.js`) that prints per level: obstacle chars per bar, median gap and longest gap in beats (after the 2-bar intro), and the share of bars with no obstacle. Use it as the target check for this task.
-3. Redo level 1 first, re-anchor D(1), then work up through the levels in order, running `node tools/check-levels.js N` on each level as you finish it.
-4. Play-check a few levels in the browser (open `index.html`; the dev build has all levels unlocked): 1, 5, 10, 15, 20, 25, 30. Each should feel busy throughout, with no stretch of 2+ seconds of empty running outside the intro and planned breathers.
-5. Finish with a full `node tools/check-levels.js` (takes several minutes) that exits 0, and the density script showing every level in its band.
+### Density targets (replace the README's Density table)
 
-## Done when
+Because the curve is steeper (§4), raise the density bands. Use these as a starting point, and adjust them only if the D targets require it:
 
-- Every level meets its density band and longest-gap limit from the density script.
-- `node tools/check-levels.js` passes with no errors.
-- README's Difficulty section reflects any changed numbers, and mentions the density targets.
-- The diff shows before/after density and D tables in the commit message or PR description.
+| Levels | Obstacle characters per bar | Longest gap between busy cells after the 2-bar intro |
+|---|---|---|
+| 1–9 | 2.5 to 3.5 | 3 beats |
+| 10–20 | 3.5 to 5.0 | 2 beats |
+| 21–30 | 5.0 to 7.0 | 1.5 beats, except one breather bar (up to 4 beats) before the climax |
+
+Update `tools/density.js` and the README to match.
+
+---
+
+## 2. Section structure of every level
+
+Keep the existing shape (intro → build → first peak → breather → climax → outro), but make each section GD-like:
+
+- **Intro (2 bars):** empty, like now, but show the level's skyline/terrain so it doesn't look blank.
+- **Build:** introduces that level's structures one at a time.
+- **First peak:** two structures chained with no rest.
+- **Breather:** one bar (levels 21–30: the only gap the density rule allows).
+- **Climax:** the hardest, densest structure of the level. It should be the part a player would screenshot, like the GD images.
+- **Outro:** a short victory run, still with obstacles.
+
+---
+
+## 3. Rework the music for every level
+
+Every level's soundtrack has to be rewritten to fit the new charts. Everything stays generated with Web Audio in `js/music.js`, with no audio files and no sound effects.
+
+- **New tracks, not tweaks:** for every level, write a new `mu` spec (tempo, key, scale, both progressions, kit, bass, lead, arp, pad, swing) and update the kit, bass and arp patterns if needed, so that no level sounds like its old version. Keep each world's character (the forest stays woody, the harbour stays nautical) but give it the energy of a GD track: a stronger drop, a clearer build and a bigger climax.
+- **Lead line = actions.** Keep the core rule: the lead plays on exactly the half-beats where the level asks for an action. Since the charts are denser, make sure the lead doesn't turn into noise: on dense passages, use shorter notes, step to the arp octave, or alternate two timbres so the melody still reads as a tune.
+- **Energy follows structures.** Form-string energy digits (0–4) should rise into each structure and peak on the climax. Keep the one-bar riser before each combo and the octave-up glassy tone on special-hazard actions (Bloom, Fade, Glass, Flicker, Mimic).
+- **Tempo is part of difficulty.** Tempo can rise across the game (roughly 112 → 180+ bpm), but D (§4) is what decides it. Pick each level's bpm to help land on its target, not just to "feel faster".
+- **Home screen:** rework the `HOME` track too and regenerate `js/demo.js` (`DEMO_SOL`) so the attract demo still finishes cleanly.
+- 60 s per level still holds: bar count × bpm must still add up to exactly one minute.
+
+---
+
+## 4. Difficulty: exactly 1.10× per level (strict)
+
+### The rule
+
+```
+target D(n) = D(1) · 1.10^(n−1)
+```
+
+Use the same D formula already in `tools/difficulty.js` (aps, mech, combo, slack, rest, gap10 and the same weights a = 0.2, b = 0.15, c = 0.3, d = 0.5, e = 0.1). **Do not re-tune the weights to make the numbers fit.** Hit the targets by changing the levels: density, tempo, combos, mixing and tighter timing.
+
+### What that means in numbers
+
+| Level | Target × D(1) | Level | Target × D(1) | Level | Target × D(1) |
+|---|---|---|---|---|---|
+| 1 | 1.00 | 11 | 2.59 | 21 | 6.73 |
+| 2 | 1.10 | 12 | 2.85 | 22 | 7.40 |
+| 3 | 1.21 | 13 | 3.14 | 23 | 8.14 |
+| 4 | 1.33 | 14 | 3.45 | 24 | 8.95 |
+| 5 | 1.46 | 15 | 3.80 | 25 | 9.85 |
+| 6 | 1.61 | 16 | 4.18 | 26 | 10.83 |
+| 7 | 1.77 | 17 | 4.59 | 27 | 11.92 |
+| 8 | 1.95 | 18 | 5.05 | 28 | 13.11 |
+| 9 | 2.14 | 19 | 5.56 | 29 | 14.42 |
+| 10 | 2.36 | 20 | 6.12 | 30 | 15.86 |
+
+Level 30 ends at about **15.9×** level 1, not 9.3×. New bands: levels 1–9 easy (1×–2.14×), 10–20 medium (2.36×–6.12×), 21–30 hard (6.73×–15.86×).
+
+### Easy to really hard, like Geometry Dash
+
+The game should feel like Geometry Dash's progression: level 1 is a friendly "Stereo Madness"-style first level that anyone can clear, and level 30 is a genuine expert challenge. Achieve this with the 1.10 ratio by anchoring level 1 low. Make level 1 gentle on purpose (single, generously timed inputs, a slower tempo and simple structures) so that the 15.9× climb lands level 30 at "really hard but fair", not impossible.
+
+**Fallback:** if level 30 can't reach its target while still passing the fairness checks, **lower level 1's D and rebuild the curve from it**. Never break the 1.10 ratio, and never loosen fairness to make level 30 fit.
+
+### Tolerances (tighter than now)
+
+- Every level within **±1.5 %** of its target (the current ±4 % is too loose for a strict 1.10 rule).
+- **And** every consecutive ratio `D(n) / D(n−1)` must be between **1.08 and 1.12**. Nothing may be easier than the level before it, or only barely harder.
+- If any level fails either check, **change that level** (and, if needed, its neighbours) until it passes. A pass that relies on editing the tool, the tolerance or the weights doesn't count.
+
+### Tool and doc changes
+
+- `tools/difficulty.js`: set `R = 1.10`, set `TOL = 0.015`, add the consecutive-ratio check, and update the header comment explaining why 1.10 (it's the design rule).
+- `tools/check-levels.js`: fail on either the target check or the consecutive-ratio check, and print both.
+- `README.md`: update the Features bullet ("rises by a steady 10 % per level … level 30 about 15.9 times harder"), the Difficulty section, the bands, the Density table and the project-structure line about 1.08. Search the whole repo for `1.08`, `9.3` and `8 %` and fix every one of them.
+- `max`: add a note at the top that the per-level ratio is now 1.10 and that this replaces whatever the brief said before.
+
+---
+
+## 5. Process
+
+1. Read the repo and run `node tools/difficulty.js` and `node tools/density.js` to record the current baseline.
+2. Change the tools for 1.10 first, so you're always measuring against the new rule.
+3. Design level 1 and lock in D(1). Then build levels 2 → 30 **in order**, measuring each one with `node tools/difficulty.js N` before you move on. Never move to level n+1 until level n is within ±1.5 % of its target and above level n−1 by 1.08–1.12×.
+4. Write each level's music together with its chart, so that the structures and the song are designed together.
+5. Keep `js/fixes.js` empty. Fix the charts themselves instead.
+6. Run the full `node tools/check-levels.js` (it takes several minutes) and `tools/parity-check.js` after the release build. Both have to pass with zero errors.
+7. Play-test levels 1, 10, 20 and 30 in the browser (developer build) and confirm they look like the reference images: layered terrain, busy ceiling, set pieces, no long flat stretches.
+
+## 6. What to report back
+
+- The final D table for all 30 levels: D, target, % off target, and the ratio to the previous level. Every row must pass.
+- Per level: bpm, key/scale, and a one-line description of its climax structure.
+- Anything you couldn't build without touching hazard behaviour, and how you approximated it.
+- Confirmation that `check-levels.js`, `density.js` and `parity-check.js` all pass.
