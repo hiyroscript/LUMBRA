@@ -39,9 +39,10 @@
    bursts of half beats at 176 bpm) scored 25-35× a gentle level 1 at any
    sensible density. The difficulty bands (2× at level 10, 4-5× at level 21)
    fix the ratio at R = 1.08 (9.3× over the game), so the multipliers around
-   aps were scaled down until a brutal level 30 lands at 9.3×, keeping the
-   split the brief describes: about 2× from density, about 1.6× from tempo,
-   the rest from mixing, tight timing and less rest. Per term:
+   aps were scaled down until a brutal level 30 lands at 9.3×. In the rebuilt
+   levels that splits into about 3× from density (0.24 to 0.71 required
+   presses per beat), 1.57× from tempo, and about 2× from mixing, combos,
+   timing and less rest. Per term:
    - aps is the base: every other term is a multiplier around 1, so D stays in
      "actions per second" units and a level twice as dense is twice as hard.
    - a = 0.2: mixing is the largest of the multipliers. Going from one hazard
