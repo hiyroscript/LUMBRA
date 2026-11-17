@@ -4,9 +4,7 @@ A rhythm runner by hiyroscript where the music and the level are the same thing.
 
 ## Play
 
-Open `index.html` in a browser. There is nothing to install and no build step.
-
-GitHub Pages: _(owner: add the Pages URL here if Pages is enabled for this repository)_
+Play online at https://hiyroscript.github.io/shkr/, or open `index.html` in a browser. There is nothing to install and no build step.
 
 ## Controls
 
