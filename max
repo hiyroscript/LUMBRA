@@ -1,149 +1,121 @@
-> **Note (current rule):** the per-level difficulty ratio is now **1.10**: every level n lands within ±1.5 % of D(1) · 1.10^(n−1) and at 1.08 to 1.12 times the level before it (level 30 ≈ 15.9 × level 1). This replaces whatever ratio, tolerance or bands this brief or earlier versions of it said before. `tools/difficulty.js` and `tools/check-levels.js` enforce it.
+# Task: "New hazard" intro dialogue, objective box redesign, Slide → Roll
 
-# Prompt: Shadow Skirr (hiyroscript/shkr): Geometry Dash–style level rework, 1.10× difficulty curve, new music
+You are working in the **hiyroscript/shkr** repo (Shadow Skirr, a rhythm runner in plain HTML/CSS/JS, no build step). Read `README.md`, `index.html`, `css/style.css`, `js/game.js` and the top of `js/levels.js` (the `HAZ` table) before changing anything. For the dialogue style, look at the **hiyroscript/vl** repo's `index.html`: `showNewCard()` (around line 2143) and the `.card` / `#overlay` styling (around line 333). Keep the existing code style: compact, ES5-style `function` declarations, `$()` helpers, no new dependencies, no new files unless needed.
 
-You are working in the `hiyroscript/shkr` repo (Shadow Skirr, a one-minute-per-level rhythm runner). Read `README.md`, `max` (the design brief), `js/levels.js`, `js/sim.js`, `js/music.js`, `js/render.js`, `js/fixes.js` and every file in `tools/` before you change anything. Then rebuild all 30 levels and their soundtracks as described below.
+## Background (what exists now)
 
-I've attached four Geometry Dash screenshots as the visual and design reference. They're attached to this message, so look at them before you design anything.
+- `js/levels.js` → `HAZ`: 15 interactive hazards, each with `k`, `ch`, `name`, `col` (its colour) and `lv` (the level that introduces it): Bloom 1, Halo 3, Drift 5, Fade 7, Prism 9, Anchor 11, Rail 13, Rift 15, Comet 17, Thermal 19, Mimic 21, Glass 23, Coil 25, Flicker 27, Zenith 29. Only these 15 count as "interactive hazards". The plain obstacles in `OBST` (spike block, crusher, etc.) do **not** get a dialogue.
+- `js/game.js`:
+  - `showCard(o)` / `hideCard()` render the centred `#overlay > .card` (eyebrow, h2 title, body `<p>`, `.acts` buttons). It sets `G.cardUp`, and `Enter` triggers the first action.
+  - `banner()` fills `#msBanner` with "Reach the end · avoid the obstacles" plus the controls, and plays the `msIn` CSS animation (fades out after 4.6 s). It is called from `beginRun(first)` only on the first run of a level.
+  - `startLevel(n)` → `beginRun(true)`, which creates the sim state, sets `G.mode = "play"`, calls `MUSIC.start(G.song)` and `clock.start()`.
+  - Settings state `S` is saved to `localStorage` via `saveState()`; settings rows live in `index.html` `#settings` (`.set-row`, `.sw` switches like `#shakeSw`).
+- `css/style.css`: `#msBanner` is `position:fixed; top:22%`, `z-index:12`, `pointer-events:none`. `#overlay` is `z-index:20` with a dark blurred backdrop.
+- The vl dialogue pattern to copy: a card with a small mono uppercase **eyebrow** ("New cue" / "New pressure"), a big uppercase **title** (the thing's name), a short plain-language **body**, an animated icon drawn above the title, and a single solid button ("got it"). Match that layout and feel inside shkr's existing `.card` styling.
 
----
+## 1. New hazard dialogue
 
-## 0. The rules that cannot be broken (in priority order)
+When the player starts the level that introduces a hazard (`HAZ.find(h => h.lv === n)`), show a dialogue before the run begins:
 
-1. **Every level must be exactly 1.10× harder than the one before it.** This is the most important rule in the task. It overrides the README, the `max` brief, code comments and any existing tool or test that says otherwise, including the current `R = 1.08`. If anything in the repo conflicts with 1.10, change the repo, not the rule. (Details in §4.)
-2. **Do not change how any hazard works.** `js/sim.js` physics, hazard rules, timings (jump = 1 beat, Fade = 0.42 beats, Coil min charge 0.15 beats, and so on), hitboxes and the 96-ticks-per-beat timestep all stay exactly as they are. The README's Hazards section must still be true word for word after your changes. You're changing *where* things go, *how many* there are and *what they're combined with*, not *what they do*.
-3. **Every level stays exactly 60 seconds, stays solvable and stays fair**, using the existing margins (0.12 on level 1, 0.08 on levels 2–10, 0.06 on 11–20, 0.04 on 21–30) and the 12-tick input rule on levels 1–20.
-4. **Hazard introductions stay where they are** (Bloom on level 1, Halo on 3 … Zenith on 29, plus the plain obstacles from `OBST`). Later levels keep reusing everything introduced earlier, and level 30 uses all 15.
+- **Eyebrow:** `new hazard` (same mono uppercase eyebrow style).
+- **Show the hazard itself:** above the title, show a small live preview of the hazard so the player sees exactly what it looks like in the game before they meet it. Draw it with the game's own render code (`js/render.js`), in the current level's theme colours, on a small canvas inside the card (about 220×140 CSS px, 2× for sharp screens). Do not use the flat `docs/hazards/*.svg` icons for this; the player must recognise the real thing when it scrolls in.
+  - Ideally it is a tiny looping demo: the runner meets the hazard and uses it correctly (bounces on the Bloom, jumps through the Halo and air-jumps, rolls onto the Coil and launches, etc.), so the picture explains the rule along with the text. A short scripted loop of 2–3 seconds is enough. If a full demo is too much for a hazard, show the hazard on its own on a bit of ground with its idle animation (Prism spinning, Fade tiles, zone tint with its bubbles/chevrons/wavy lines).
+  - Keep the preview separate from the frozen main game: it must not advance the real sim, clock or music.
+  - Stop its `requestAnimationFrame` loop when the card closes. With `prefers-reduced-motion`, show one still frame instead of the loop.
+- **Title:** the hazard name (e.g. `BLOOM`), with the hazard colour used as an accent (underline, icon glow or a coloured dot — keep the title text readable).
+- **Body:** the explanation from the table below. Use "roll" (see section 4).
+- **One button:** `Understood`, styled `solid`. `Enter` must also trigger it (already handled by `G.cardUp` + `cardActs[0]`).
 
----
+### Freezing
 
-## 1. Goal: Geometry Dash–level creativity and density
+The game must be fully frozen while the dialogue is up: no music, no clock, no runner movement, no input reaching the sim.
 
-The current charts are mostly flat ground with one obstacle after another. Rebuild every chart so it reads like a hand-built Geometry Dash level: layered, vertical, full of set pieces, and busy at every moment. Use the reference images like this:
+- Split `beginRun` so that on the intro level the state and level are set up and the first frame is drawn (the runner standing at the start), but `MUSIC.start()` and `clock.start()` are **not** called yet. Use a distinct mode such as `G.mode = "intro"` so the jump/roll key and pointer handlers (which check `G.mode === "play"`) ignore input, and the frame loop doesn't advance the sim.
+- Clicking `Understood` (or pressing Enter) hides the card and the objective box, sets `G.mode = "play"`, then starts the music and clock exactly as `beginRun` does today, so the run starts in sync from beat 0.
+- Make sure `Escape`, tab hiding (`visibilitychange`) and window `blur` don't break this: `pauseGame()` must not open a Paused card on top of the intro card, and coming back to the tab must not start the music.
+- Show it once per `startLevel(n)` of that level (i.e. when entering the level from home, "next level" or "replay"), **not** on restarts after dying or from the Paused menu (`beginRun(false)`).
+- The home attract-mode demo must never show it.
 
-| Reference | What to take from it | How to express it with existing Shadow Skirr pieces |
-|---|---|---|
-| Image 1 (lava, hanging spiked blocks on chains, orbs, pillars, portal) | Hazards hanging from the ceiling at several heights; raised blocks to land on between gaps; a floor that kills you; orbs that chain jumps across a gap | Crushers and floating spike blocks (`*`) at staggered heights over pits; tall steps reached with Bloom/Halo/Rift; Halo chains standing in for jump orbs; pits as the "lava" floor between platforms |
-| Image 2 (ice castle, chains, sloped ramps, spike bed, ship section) | A sunken spike bed you have to fly or arc over; terrain that climbs in stages; long airborne sections | Long pit runs crossed with Drift, Comet glides, Thermal or Rail; staircases of steps up and down; spiked steps (`%`) as ramp edges |
-| Image 3 (pink grid, three yellow orbs over a spike floor) | An orb chain over a continuous deadly floor, with a pillar at each end | Rows of Halos (and Comet / Fade tiles) over long pits, starting from a spiked step and ending on a tall step |
-| Image 4 (fireballs, portal, gravity arrows, 44%) | Dense, overlapping hazards; gravity or mode changes in the middle of a sequence; collectibles in tight lines | Zenith and Anchor/Drift zones layered with Prism, Mimic, Glass and Flicker inside them; sequences where you switch zone in the middle of a combo |
+### Hazard explanations
 
-### Placement principles (apply to every level, scaled by its difficulty)
+Keep them very simple: short sentences, everyday words, one idea each, written to the player ("you"). Say what it is, then what to do. No numbers, no "beats", no game terms the player hasn't seen. Use these as written (only adjust if the code shows a mechanic works differently; the README "Hazards" section is the source of truth):
 
-- **No flat filler.** The ground almost never stays at one height for more than about 2 bars. Use steps up and down, tall steps, pits and Glass shelves so the run has a real height profile: high routes, low routes, drops and climbs.
-- **Set pieces, not single obstacles.** Build every section from small, named "structures": a castle gate (Prism + gate + low tunnel), an orb bridge (a Halo chain over a pit), a crusher hall, a spike bed (a pit run under a Comet/Rail), a tower climb (Rift → tall step → Bloom → tall step). Each level needs at least 6 distinct structures, and levels 21–30 need at least 10. Don't reuse the same structure twice in a row.
-- **Use the ceiling.** Walls hanging down, bars, floating spike blocks and crushers should make the space above you as busy as the ground, the way the hanging spiked blocks are in image 1. Aim for something overhead in roughly a third of busy cells on levels 10 and up.
-- **Layered hazards.** One input should often answer two threats at once (a jump that clears a spike *and* collects a Halo *and* passes a Mimic eye in the air). Combos ramp up: about 2–4 per minute on 1–9, 5–8 on 10–20 and 8–14 on 21–30.
-- **Every half-beat that looks dangerous is dangerous.** No decoration that looks deadly but isn't, and no deadly thing that's hidden. Terrain can be decorated using scenery colours only (`th` palette); hazard colours stay reserved for hazards.
-- **Visual rhythm matches the music.** Structures start on bar lines and peak on the level's energy-4 bars, the same way GD drops land on the music.
-- **Variety per world.** Each level's `th` theme should shape the structures (rooftops → stepped skylines and pipes as bars; harbour → long plank bridges over pits; and so on).
-- **Readable at speed.** Leave a clear half-beat of read time before any new mechanic switch (a zone entry, a Flicker set, a Mimic beam), even on level 30.
+| Hazard | Body text |
+|---|---|
+| Bloom | A bouncy pad. Run onto it and it throws you up really high. Use it to get over big gaps and tall steps. |
+| Halo | A floating ring. Jump through it, then press jump again while you're in the air to jump a second time. |
+| Drift | Inside the purple area you're light as a bubble. Your jumps go higher and you fall slower. |
+| Fade | Tiles that disappear soon after you step on them. Land on one and jump off right away. |
+| Prism | A spinning crystal opens the orange wall after it. Touch the crystal, then run through the wall. If you miss the crystal, the wall stays closed. |
+| Anchor | Inside the blue area you're heavy. Your jumps are small and quick, so press fast. |
+| Rail | A bar you can hang from. Jump and keep holding jump to grab it. Let go to drop down. |
+| Rift | A portal that shoots you straight up. Run into it to reach places too high to jump to. |
+| Comet | Grab it while you're in the air and you'll glide straight across. Great for long gaps. |
+| Thermal | Warm air pushes you up by itself. Jump doesn't work here. Hold roll to go down. |
+| Mimic | The eye watches you, then shoots where you were. If you were on the ground, jump. If you were in the air, stay on the ground. |
+| Glass | You can run on top of it. To break through, roll as you land on it. |
+| Coil | A spring. Roll onto it and hold roll to squeeze it, then let go to fly up. Hold longer to go higher. |
+| Flicker | Some tiles are solid and some are see-through. Every time you jump, they swap. Count your jumps! |
+| Zenith | Gravity flips and you run on the ceiling. Jump still works the same way. You flip back when you leave the area. |
 
-### Terrain and obstacle vocabulary
+## 2. Objective box redesign (`#msBanner`)
 
-Use only chart characters the compiler and sim already support, combined in new ways. If a GD-style shape (a slope, say) can't be built from existing pieces, approximate it with a staircase of steps. **Don't add new collision types, new hazard rules or new physics.** If you believe a new purely visual terrain piece is needed (for example, chains drawn above a crusher), it has to be render-only with no effect on collision, and you need to say so in your summary.
-
-### Density targets (replace the README's Density table)
-
-Because the curve is steeper (§4), raise the density bands. Use these as a starting point, and adjust them only if the D targets require it:
-
-| Levels | Obstacle characters per bar | Longest gap between busy cells after the 2-bar intro |
-|---|---|---|
-| 1–9 | 2.5 to 3.5 | 3 beats |
-| 10–20 | 3.5 to 5.0 | 2 beats |
-| 21–30 | 5.0 to 7.0 | 1.5 beats, except one breather bar (up to 4 beats) before the climax |
-
-Update `tools/density.js` and the README to match.
-
----
-
-## 2. Section structure of every level
-
-Keep the existing shape (intro → build → first peak → breather → climax → outro), but make each section GD-like:
-
-- **Intro (2 bars):** empty, like now, but show the level's skyline/terrain so it doesn't look blank.
-- **Build:** introduces that level's structures one at a time.
-- **First peak:** two structures chained with no rest.
-- **Breather:** one bar (levels 21–30: the only gap the density rule allows).
-- **Climax:** the hardest, densest structure of the level. It should be the part a player would screenshot, like the GD images.
-- **Outro:** a short victory run, still with obstacles.
-
----
-
-## 3. Rework the music for every level
-
-Every level's soundtrack has to be rewritten to fit the new charts. Everything stays generated with Web Audio in `js/music.js`, with no audio files and no sound effects.
-
-- **New tracks, not tweaks:** for every level, write a new `mu` spec (tempo, key, scale, both progressions, kit, bass, lead, arp, pad, swing) and update the kit, bass and arp patterns if needed, so that no level sounds like its old version. Keep each world's character (the forest stays woody, the harbour stays nautical) but give it the energy of a GD track: a stronger drop, a clearer build and a bigger climax.
-- **Lead line = actions.** Keep the core rule: the lead plays on exactly the half-beats where the level asks for an action. Since the charts are denser, make sure the lead doesn't turn into noise: on dense passages, use shorter notes, step to the arp octave, or alternate two timbres so the melody still reads as a tune.
-- **Energy follows structures.** Form-string energy digits (0–4) should rise into each structure and peak on the climax. Keep the one-bar riser before each combo and the octave-up glassy tone on special-hazard actions (Bloom, Fade, Glass, Flicker, Mimic).
-- **Tempo is part of difficulty.** Tempo can rise across the game (roughly 112 → 180+ bpm), but D (§4) is what decides it. Pick each level's bpm to help land on its target, not just to "feel faster".
-- **Home screen:** rework the `HOME` track too and regenerate `js/demo.js` (`DEMO_SOL`) so the attract demo still finishes cleanly.
-- 60 s per level still holds: bar count × bpm must still add up to exactly one minute.
-
----
-
-## 4. Difficulty: exactly 1.10× per level (strict)
-
-### The rule
+Restructure the objective box into a clear layout:
 
 ```
-target D(n) = D(1) · 1.10^(n−1)
+┌───────────────────────────────────────────┐
+│               RUN TO THE END              │   ← top middle
+│                                           │
+│   JUMP  space · ↑ · w · click     ROLL  ↓ · s · right-click   │   ← centred row, side by side
+│                                           │
+│            ☐ Don't show again             │   ← very bottom
+└───────────────────────────────────────────┘
 ```
 
-Use the same D formula already in `tools/difficulty.js` (aps, mech, combo, slack, rest, gap10 and the same weights a = 0.2, b = 0.15, c = 0.3, d = 0.5, e = 0.1). **Do not re-tune the weights to make the numbers fit.** Hit the targets by changing the levels: density, tempo, combos, mixing and tighter timing.
+- Top line, centred: `Run to the end` (replaces "Reach the end · avoid the obstacles").
+- Middle, centred: the jump and roll hints as two items **horizontally next to each other** (flex row with a gap, each item = bold label + keys). Touch version: `jump` tap the right side · `roll` hold the left side. On very narrow screens they may wrap, but stay centred.
+- Bottom, centred: a `Don't show again` checkbox with a visible checkmark, styled to match the game (mono, small, a custom box with a ✓ when checked, not the raw browser checkbox). Its label must be clickable, keyboard focusable and have proper `aria`.
+- Because the checkbox is interactive, `#msBanner` needs `pointer-events:auto` while it's visible (and back to `none` when hidden), and clicks/taps on it must **not** count as jump/roll input (stop propagation, and make sure the touch-zone handlers on the canvas don't fire).
+- Build it with real child elements (e.g. `.ob-title`, `.ob-keys`, `.ob-hide`) instead of the current `innerHTML` with `<br>`.
 
-### What that means in numbers
+### Position and behaviour
 
-| Level | Target × D(1) | Level | Target × D(1) | Level | Target × D(1) |
-|---|---|---|---|---|---|
-| 1 | 1.00 | 11 | 2.59 | 21 | 6.73 |
-| 2 | 1.10 | 12 | 2.85 | 22 | 7.40 |
-| 3 | 1.21 | 13 | 3.14 | 23 | 8.14 |
-| 4 | 1.33 | 14 | 3.45 | 24 | 8.95 |
-| 5 | 1.46 | 15 | 3.80 | 25 | 9.85 |
-| 6 | 1.61 | 16 | 4.18 | 26 | 10.83 |
-| 7 | 1.77 | 17 | 4.59 | 27 | 11.92 |
-| 8 | 1.95 | 18 | 5.05 | 28 | 13.11 |
-| 9 | 2.14 | 19 | 5.56 | 29 | 14.42 |
-| 10 | 2.36 | 20 | 6.12 | 30 | 15.86 |
+- **No hazard dialogue on this level:** the box appears where it is now (top area) and disappears by itself after a while, as now. Give the player a little longer to reach the checkbox (around 6 s instead of 4.6 s), and keep it visible while the pointer is over it or the checkbox is focused. The run is not frozen in this case.
+- **With a hazard dialogue:** the objective box moves down so it sits **right above the dialogue card**, centred, with a small gap (~12 px), as one visual group. It must render above the overlay's dark backdrop (raise its `z-index` above `#overlay`'s 20 while in this state, or move it into the overlay above `.card`, which is likely cleaner since the overlay already centres and scrolls). It does **not** auto-fade in this state; it stays until `Understood` is clicked, and then both boxes disappear together (short fade is fine).
+- Make sure the pair fits on small phones in landscape and portrait: the overlay already scrolls (`overflow-y:auto`), so no content may be cut off.
 
-Level 30 ends at about **15.9×** level 1, not 9.3×. New bands: levels 1–9 easy (1×–2.14×), 10–20 medium (2.36×–6.12×), 21–30 hard (6.73×–15.86×).
+### "Don't show again"
 
-### Easy to really hard, like Geometry Dash
+- Add `S.objective` (default `true`) to the saved state, with a safe default for existing saves (old saves without the key must still show the box).
+- When the player ticks the checkbox, set `S.objective = false` and `saveState()` immediately. Unticking it again before the box disappears sets it back to `true`.
+- When `S.objective` is `false`, the objective box is never shown. **Hazard dialogues still show** (they are not affected by this setting); the card just appears on its own, centred, without the box above it.
 
-The game should feel like Geometry Dash's progression: level 1 is a friendly "Stereo Madness"-style first level that anyone can clear, and level 30 is a genuine expert challenge. Achieve this with the 1.10 ratio by anchoring level 1 low. Make level 1 gentle on purpose (single, generously timed inputs, a slower tempo and simple structures) so that the 15.9× climb lands level 30 at "really hard but fair", not impossible.
+## 3. Settings: bring the objective box back
 
-**Fallback:** if level 30 can't reach its target while still passing the fairness checks, **lower level 1's D and rebuild the curve from it**. Never break the 1.10 ratio, and never loosen fairness to make level 30 fit.
+Add a row to `#settings` in `index.html`, between "Screen shake" and "Reset progress", using the same `.set-row` / `.sw` switch pattern as `#shakeSw`:
 
-### Tolerances (tighter than now)
+- Label: **Objective tips** — description: `Show the goal and controls at the start of a level.`
+- Switch `#objSw`, `aria-pressed` bound to `S.objective`. Turning it on sets `S.objective = true` and saves; the box then shows again on the next level start. Turning it off hides it from then on (same as ticking "Don't show again").
+- Wire it up exactly like `#shakeSw` (read the existing handler and the code that syncs switch states when the settings screen opens).
+- "Reset progress" should **not** touch this setting (it only clears unlocks, stars and tries).
 
-- Every level within **±1.5 %** of its target (the current ±4 % is too loose for a strict 1.10 rule).
-- **And** every consecutive ratio `D(n) / D(n−1)` must be between **1.08 and 1.12**. Nothing may be easier than the level before it, or only barely harder.
-- If any level fails either check, **change that level** (and, if needed, its neighbours) until it passes. A pass that relies on editing the tool, the tolerance or the weights doesn't count.
+## 4. Rename "Slide" to "Roll"
 
-### Tool and doc changes
+Rename the player-facing action everywhere the player can read it: the objective box, any cards, the settings text, the hazard explanations and the `README.md` (Controls table, "The basics" section, every hazard description that says slide/sliding/slid). Use natural forms: "roll", "rolling", "roll under", "hold roll".
 
-- `tools/difficulty.js`: set `R = 1.10`, set `TOL = 0.015`, add the consecutive-ratio check, and update the header comment explaining why 1.10 (it's the design rule).
-- `tools/check-levels.js`: fail on either the target check or the consecutive-ratio check, and print both.
-- `README.md`: update the Features bullet ("rises by a steady 10 % per level … level 30 about 15.9 times harder"), the Difficulty section, the bands, the Density table and the project-structure line about 1.08. Search the whole repo for `1.08`, `9.3` and `8 %` and fix every one of them.
-- `max`: add a note at the top that the per-level ratio is now 1.10 and that this replaces whatever the brief said before.
+- Internal identifiers (`keys.s`, `keys.qs`, sim event `"slide"`, `RENDER.cue` names, tools in `tools/`) may stay as they are, to avoid touching the deterministic sim and the parity/level checks. Don't rename sim logic.
+- Keep "dive" as the name for rolling in mid-air.
 
----
+## 5. Checks before you finish
 
-## 5. Process
-
-1. Read the repo and run `node tools/difficulty.js` and `node tools/density.js` to record the current baseline.
-2. Change the tools for 1.10 first, so you're always measuring against the new rule.
-3. Design level 1 and lock in D(1). Then build levels 2 → 30 **in order**, measuring each one with `node tools/difficulty.js N` before you move on. Never move to level n+1 until level n is within ±1.5 % of its target and above level n−1 by 1.08–1.12×.
-4. Write each level's music together with its chart, so that the structures and the song are designed together.
-5. Keep `js/fixes.js` empty. Fix the charts themselves instead.
-6. Run the full `node tools/check-levels.js` (it takes several minutes) and `tools/parity-check.js` after the release build. Both have to pass with zero errors.
-7. Play-test levels 1, 10, 20 and 30 in the browser (developer build) and confirm they look like the reference images: layered terrain, busy ceiling, set pieces, no long flat stretches.
-
-## 6. What to report back
-
-- The final D table for all 30 levels: D, target, % off target, and the ratio to the previous level. Every row must pass.
-- Per level: bpm, key/scale, and a one-line description of its climax structure.
-- Anything you couldn't build without touching hazard behaviour, and how you approximated it.
-- Confirmation that `check-levels.js`, `density.js` and `parity-check.js` all pass.
+1. Run the existing tools (`node tools/check-levels.js`, `node tools/parity-check.js`) and confirm they still pass; the sim must be unchanged.
+2. Open `index.html` in a browser (both the dev build and a release build from `tools/build-release.sh`) and verify:
+   - Level 1, 3, 5 … 29: the dialogue appears with a working preview of that level's hazard, the runner is frozen, music is silent, the HUD try counter isn't advanced twice; `Understood` (click and Enter) starts the run in sync; both boxes vanish together.
+   - Even levels (no new hazard): the objective box shows at the top and fades on its own, and the run is not frozen.
+   - Dying and retrying on a hazard level does not show the dialogue again.
+   - "Don't show again" hides the box on later levels and survives a reload; the settings switch brings it back; hazard dialogues show either way.
+   - Tab switch / window blur while the dialogue is up doesn't start music or open the Paused card.
+   - Touch: tapping the checkbox or the button doesn't make the runner jump or roll.
+   - Narrow phone (portrait and landscape): nothing overlaps or gets cut off.
+3. No visible text anywhere still says "slide".
+4. Update the README Features/Settings lines to mention the hazard intro dialogue and the new Objective tips setting.
