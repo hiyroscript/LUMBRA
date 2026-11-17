@@ -1,6 +1,6 @@
-# Prompt: Rebuild Shadow Skirr's levels 2–30 on a steady difficulty curve, with mixed hazards and matching music
+# Prompt: Rebuild all 30 of Shadow Skirr's levels on a steady difficulty curve, with mixed hazards and matching music
 
-You are working in the `shkr` repo (Shadow Skirr, a canvas rhythm runner by hiyroscript). Rebuild every level after level 1 so that:
+You are working in the `shkr` repo (Shadow Skirr, a canvas rhythm runner by hiyroscript). Rebuild every level, level 1 included, so that:
 
 1. difficulty rises by a fixed ratio from one level to the next, from easy (level 1) to really hard (level 30);
 2. later levels keep using hazards that earlier levels introduced, and often stack several hazards together;
@@ -28,7 +28,7 @@ You may change anything else in the repo if the work needs it. Read `README.md` 
 
 | | Now |
 |---|---|
-| Level 1 | 112 bpm, 112 beats, **60.0 s**. Uses Bloom only, about 0.29 actions per beat. |
+| Level 1 | 112 bpm, 112 beats, **60.0 s**. Uses Bloom only, about 0.29 actions per beat. Being rebuilt anyway. |
 | Levels 2–30 | 66 s to 130 s long, growing with level number (level 30 is 172 bpm, 372 beats, 129.8 s). |
 | Mixing | Most levels use only their own new hazard plus one or two others. Only level 30 mixes many. |
 
@@ -38,7 +38,7 @@ To reproduce these numbers, concatenate `sim.js`, `levels.js` and `fixes.js` int
 
 ## 1. Hard rules
 
-1. **Level 1 stays exactly as it is** (chart and `mu`). It is the anchor of the curve, and it is already 60 s long.
+1. **Level 1 is rebuilt too.** It is the anchor of the curve, so it must be a gentle, welcoming first minute. It uses only Bloom and plain obstacles, starts with several bars of nothing but simple spikes, keeps lots of rest and asks for no more than about 0.35 actions per beat. Keep it at 112 bpm (already a multiple of 4), its name, its theme and its instruments, unless a change clearly helps it as a first level.
 2. **Do not change the physics.** Leave all constants and rules in `step()` alone: gravity sets, jump timing, coyote and buffer windows, hitboxes (`PH`, `SH`, `HW`), `FADE` and every hazard's behaviour. The README's Hazards section must stay true word for word. If you believe a sim change is truly needed, stop and justify it in your final report first. The difficulty has to come from the charts.
 3. **The hazard introduction schedule stays the same:** Bloom on 1, Halo on 3, Drift on 5, and so on up to Zenith on 29 (`HAZ[].lv`). A hazard never appears before its introduction level.
 4. **Level names and themes (`th`) stay** unless a change is required.
@@ -49,7 +49,7 @@ To reproduce these numbers, concatenate `sim.js`, `levels.js` and `fixes.js` int
 
 ## 2. One minute per level
 
-- Every level from 2 to 30 must last **60 s** from the first beat to the end of the chart: `cells / 2 = bpm` beats. The 2-beat run-out after the chart (`endX = 2n + 8`) doesn't count.
+- Every level from 1 to 30 must last **60 s** from the first beat to the end of the chart: `cells / 2 = bpm` beats. The 2-beat run-out after the chart (`endX = 2n + 8`) doesn't count.
 - A chart is made of 8-cell bars (4 beats each), so the beat count must be a multiple of 4. **Choose every bpm as a multiple of 4.** Then `bars = bpm / 4` and the level is exactly 60.0 s.
 - Tempo curve: from 112 (level 1) to about 172–180 (level 30). Tempo never goes down, and it rises by 0 or 4 bpm per level, so it carries part of the difficulty without becoming the only lever.
 - Write a check that fails if any level is not 60.0 s (±0.05 s).
@@ -81,13 +81,13 @@ Starting weights: a = 0.35, b = 0.5, c = 0.6, d = 0.5, e = 0.5. Write the final 
 
 ### 3.2 The target ratio
 
-- Target `D(n) = D(1) · r^(n−1)`, with each level allowed to be within ±4 % of its target. D must strictly increase from level to level.
+- Set level 1's D first, by designing it as the easy anchor (§1, rule 1). Then target `D(n) = D(1) · r^(n−1)`, with each level allowed to be within ±4 % of its target. D must strictly increase from level to level.
 - The proposed r is **1.10**. That gives 1.1^29 ≈ **15.9× harder** at level 30 than at level 1. Check whether that is reachable before committing to it:
   - a run can ask for at most 2 actions per beat, and the tempo only rises about 1.6×;
   - so roughly 2× of the difficulty must come from density and the rest from mixing, tight timing and less rest.
 - If 15.9× would make the last levels unbeatable, or only beatable at margin 0 (frame-perfect), lower r. The repo owner said this is allowed. Use **r = 1.08** (≈ 9.3×) or the largest r between 1.07 and 1.10 that keeps level 30 solvable with margin ≥ 0.04 and never makes a level frame-perfect.
 - Report the r you chose and why, together with the D table (target versus actual).
-- The goal is "easy to really hard". Level 30 must feel brutal but fair. Levels 2–5 must still feel gentle.
+- The goal is "easy to really hard". Level 30 must feel brutal but fair. Levels 1–5 must still feel gentle.
 
 ### 3.3 Shape inside each level
 
@@ -151,11 +151,11 @@ The music is built from each chart, so the lead line already follows the new act
 
 ## 6. Playability: every level must be beatable, and fair
 
-For every level 2–30:
+For every level 1–30:
 
-1. `SIM.solve(L, m, budget)` must succeed with `m = 0` **and** with a fairness margin. Use `m ≥ 0.08` for levels 2–10, `m ≥ 0.06` for 11–20 and `m ≥ 0.04` for 21–30. Raise the budget above `6e6` if needed, and report the budget you used.
+1. `SIM.solve(L, m, budget)` must succeed with `m = 0` **and** with a fairness margin. Use `m ≥ 0.12` for level 1, `m ≥ 0.08` for levels 2–10, `m ≥ 0.06` for 11–20 and `m ≥ 0.04` for 21–30. Raise the budget above `6e6` if needed, and report the budget you used.
 2. Replay the solver path with `SIM.replay` and confirm `won === true`.
-3. No step needs an input in a window shorter than 2 solver decisions (`DEC = 6` ticks). Measure this by running the solver with `DEC = 12` and checking that it still solves levels 2–20. If it fails on some of them, report which and why.
+3. No step needs an input in a window shorter than 2 solver decisions (`DEC = 6` ticks). Measure this by running the solver with `DEC = 12` and checking that it still solves levels 1–20. If it fails on some of them, report which and why.
 4. No blind jumps: the screen shows about 15 world units ahead (check `render.js` for the real view width), so every hazard that needs a reaction has to be on screen at least 1 beat (4 units) before the input it needs.
 5. Write `tools/check-levels.js`, which runs checks 1–3 plus the 60 s check (§2), the hazard reuse check (§4.1) and the D table (§3). It exits non-zero on any failure. Add it to `.github/workflows/build.yml` before the build step.
 6. Keep `js/fixes.js` empty if you can. Fix charts in `levels.js` instead.
@@ -183,17 +183,17 @@ Update `README.md`:
 
 ## 9. Work plan
 
-1. Read the files in §0. Run the current levels through the solver and `difficulty.js` to get a baseline, with level 1's D as the anchor.
+1. Read the files in §0. Run the current levels through the solver and `difficulty.js` to get a baseline, to see where the old levels sat.
 2. Decide r (§3.2) from the feasibility numbers.
 3. Set the tempo table and bar counts (§2).
-4. For each level from 2 to 30 in order, write its phrases and form, then run `check-levels.js` on it alone. Tune it until it is within ±4 % of its D target and passes every fairness check. Don't go back and rewrite earlier levels unless the curve needs it.
+4. Rebuild level 1 first and fix D(1). Then, for each level from 2 to 30 in order, write its phrases and form, then run `check-levels.js` on it alone. Tune it until it is within ±4 % of its D target and passes every fairness check. Don't go back and rewrite earlier levels unless the curve needs it.
 5. Rework the music (§5).
 6. Run every check, the release build and the parity check, then update the docs.
-7. Commit in logical steps: tools, levels 2–10, 11–20, 21–30, music, docs.
+7. Commit in logical steps: tools, levels 1–10, 11–20, 21–30, music, docs.
 
 ## 10. Deliverables and final report
 
-- New `LEVELS[1..29]` in `js/levels.js`, any `music.js` changes, `tools/difficulty.js`, `tools/check-levels.js`, the workflow update and README updates.
+- All 30 new `LEVELS` entries in `js/levels.js`, any `music.js` changes, `tools/difficulty.js`, `tools/check-levels.js`, the workflow update and README updates.
 - A final report with:
   - the ratio r and why;
   - a table per level: bpm, seconds, hazards used, combos per minute, D target, D actual, the largest margin that still solves, and solver steps;
