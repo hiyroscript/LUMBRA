@@ -1,125 +1,82 @@
-# SHADOW SKIRR — Automatic release build + developer build on GitHub Pages
+# Prompt: Revamp Shadow Skirr's character animations
 
-You are working in the **`hiyroscript/shkr`** repository: *Shadow Skirr*, a static-site rhythm runner (`index.html`, `css/style.css`, `js/*.js`, `README.md`, `max`). There is no build step, no `package.json`, and no `.github/` folder yet. Read `README.md` first, especially **Development notes**. **Leave `max` untouched.**
+You are working in the `shkr` repo (Shadow Skirr, a canvas rhythm runner by hiyroscript). Revamp every animation of the player character so it moves fluidly and believably, replace the run cycle with a real run, and turn the slide into a spinning ball (Sonic-style spin-dash look).
 
-## Goal
+## Where the character lives (read these first)
 
-From one source tree, produce **two builds automatically on every push to `main`**:
+- `js/render.js`, section `/* ---------------- the stickman ---------------- */`:
+  - `ik(ax, ay, bx, by, l1, l2, dir)`: two-bone IK used for every limb.
+  - `stick(V)`: picks hard-coded joint targets (`hip`, `neck`, `head`, `f1`/`f2` feet, `h1`/`h2` hands, `rot`, knee dir `kd`, elbow dir `ed`) per state, then applies squash/stretch, builds 5 segments and strokes them as a black silhouette (limb width `.132`, torso `.172`, head radius `.22`, 1px `FOG.rim` rim on the head, halo ring when `s.air > 0`).
+  - It is called around line ~716 inside `if (!V.dead) { ... stick(V); g.restore(); }`. Units are world units, y-up, the player is ~1.7 tall standing (`PH = 1.7`) and 0.8 sliding (`SH = 0.8`) — see `js/sim.js`.
+- `js/sim.js`: the deterministic simulation (96 ticks per beat, `TPB = 96`). State flags you animate from: `s.gr` (grounded), `s.sl` (sliding), `s.vy`, `s.hang >= 0` (hanging on a Rail), `s.gl > 0` (glide), `s.dive`, `s.air > 0` (air-jump charge/halo), `s.ch` (Coil charge while sliding), `s.flip` (gravity flip), `s.par`, events `jump`, `air`, `slide`, `coil`, `land`, `land2`, `bounce`.
+- `js/game.js`: feeds `RENDER.frame({ s, x, y, beat, time, squash, thermal, ... })`; `G.squash` is set on land/bounce events and decays at `dt * 5`.
 
-1. **Release build**: the normal game exactly as it plays today, packaged as a **downloadable zip** that the owner can upload to a game site (itch.io, Newgrounds, etc.). It must contain **no developer code at all**: not hidden, not disabled, but absent from the files.
-2. **Developer build**: deployed to **GitHub Pages** (`https://hiyroscript.github.io/shkr/`). All 30 levels are unlocked and show **three rainbow stars**, and a developer panel lets you **reset progression and put it back**.
+## Hard rules
 
-Only the developer build may have the developer features. That is the most important requirement in this task.
+1. **Do not touch gameplay.** `js/sim.js`, `js/levels.js` and the hitbox sizes (`PH`, `SH`, `HW`) must not change. All new animation state must live in the renderer (or in `game.js` view-only state), never in `SIM` state. Run `node tools/parity-check.js` (after `tools/build-release.sh` if needed) and confirm it still passes — replays and the home demo must be bit-identical.
+2. **Keep the art style:** solid black silhouette, round caps/joins, the same line widths and head size, the light rim on the head, the halo ring for `s.air`. No new colours except existing palette entries (`FOG.rim`, `COL.*`).
+3. **Framerate independent and beat-locked.** Everything is driven by `tNow`, `V.beat` and real `dt`; the run cycle must stay locked to the music beat (`V.beat`) so steps land on the rhythm.
+4. **Respect `prefers-reduced-motion`:** keep the poses but drop purely decorative extras (secondary wobble, speed lines, spin blur), consistent with how the README describes reduced motion.
+5. Keep it performant (no per-frame allocations beyond what exists today if avoidable; no images/sprite sheets — it stays procedural vector drawing).
 
-**The release build must always, automatically play against the source.** Every time the release is built (every push to `main` and every manual run), the workflow must automatically prove two things before a zip is made: (1) the release **plays exactly the same** as the source game, and (2) the release contains **no dev features at all**. If either check fails, the workflow fails and **no zip and no release are published**. This gate is never optional. There's no flag to skip it, it isn't `continue-on-error`, and it isn't a separate job that can be bypassed. See sections 4 and 6.
+## Architecture change: from snapping poses to blended poses
 
-**The developer build needs no build step.** GitHub Pages keeps serving the `main` branch root exactly as it does now, so the repo itself *is* the developer version. Don't add a Pages deploy workflow and don't change the Pages settings. Only the release build is generated: it's the repo with the dev code stripped out.
+Right now every state returns fixed joint positions, so switching states (run → jump → fall → land → slide) snaps instantly. Restructure `stick(V)`:
 
-## Current code you must know about
+- Define a **pose** object: `{ hip, neck, head, f1, f2, h1, h2, rot, kd, ed, ball }` (positions relative to the ground contact point).
+- Write one function per state that returns a target pose: `poseRun(phase)`, `poseRise(vy)`, `poseApex`, `poseFall(vy)`, `poseLand(squash)`, `poseBall(spin)`, `poseHang(t, tuck)`, `poseGlide`, `poseDive`, `poseThermal(t)`, `poseCoilCharge(ch)`.
+- Keep a small persistent **view pose** in the renderer (module-level), and each frame blend current → target with critically-damped smoothing (e.g. `k = 1 - Math.exp(-dt * 18)`, faster ~30 for landing impacts) per joint. Blend `rot` via shortest angle.
+- Reset the view pose instantly when `V.snap` is true (level start/restart) so nothing tweens in from a stale pose.
+- Add light **secondary motion**: head lags the torso slightly (spring on head offset), and hands overshoot a little on direction changes.
 
-- Scripts are classic `<script>` tags in `index.html`, loaded in this order at the end of `<body>`, sharing top-level globals: `sim.js` → `levels.js` → `fixes.js` → `demo.js` → `music.js` → `backdrops.js` → `render.js` → `game.js`. **Do not convert to ES modules.** The game must still run by opening `index.html` from `file://`.
-- `js/game.js` is one IIFE. Save state:
-  - `KEY = "shadowskirr.v1"`, `LEGACY_KEY = "lumbra.v1"`, `DEFAULTS = { music: 0.8, shake: true, sel: 1, unlocked: 1, rec: {} }`.
-  - `S.rec[n] = { t: tries, s: stars, d: done }`. `starsFor(t)` returns `4` for three rainbow stars (1 try), `3`/`2`/`1` otherwise. `starsHTML(4)` renders the rainbow stars (`.star.rb`).
-  - `S.unlocked` is the highest unlocked level (1..N, N = `LEVELS.length` = 30).
-  - `loadState()`, `saveState()`, `paintHome()`, `paintLevels()`, `startHome()`, `show(screen)`, `showCard({...})`, `hideCard()` exist inside the IIFE.
-  - Settings has a "Reset progress" row (`#resetBtn`) that sets `S.rec = {}; S.unlocked = 1; S.sel = 1`.
-  - The debug handle is `window.__SHADOWSKIRR = { G, S(), startLevel, keys, getL }` (alias `window.__LUMBRA`).
+## 1. New run cycle (the main fix)
 
-## Design: one source, a tiny hook, and a dev-only file
+The current run is just feet sliding back and forth on a cosine with a tiny bob — it reads as shuffling, not running. Replace it with a proper sprint cycle keyed to `phase = V.beat * TAU` (one stride pair per beat; tune to 2 steps per beat if it looks too slow at high BPM):
 
-### 1. Add a minimal, inert hook to `game.js` (ships in both builds)
+- **Forward lean:** torso leans ~12–18° forward (neck ahead of hip), head slightly ahead and up.
+- **Four key poses per step**, interpolated smoothly (use a keyframed cycle with Catmull-Rom or cosine easing between keys rather than a single sine):
+  1. *Contact* – front foot strikes slightly ahead of the hip, knee nearly straight; back leg extending behind.
+  2. *Down / compression* – hip at its lowest (~0.05 below neutral), stance knee bent, swing foot passing under the hip, heel tucked high toward the butt.
+  3. *Push-off* – stance leg fully extended behind and back, toe last off the ground; hip rising.
+  4. *Flight / up* – both feet off the ground briefly, hip at highest, swing knee driven forward and up (thigh near horizontal), trailing foot kicked up behind.
+- **Foot path:** stance foot planted on the ground and moving backward at running speed (no sliding/skating — the planted foot's x should move back at the world scroll speed `UPB` units per beat); swing foot travels a tall elliptical/teardrop arc (high heel recovery, then reaching forward). Make sure the knee always bends forward (`kd`) and never inverts mid-cycle.
+- **Arms:** opposite to legs, bent ~90° at the elbow, driving forward-up to about chin height and back past the hip; hands slightly in front on the forward swing. Elbow direction stays consistent.
+- **Body bob & rotation:** hip vertical bob of two bumps per stride (low at compression, high at flight); a tiny torso pitch oscillation (±3°) synced to the steps.
+- Optional (disable under reduced motion): faint dust kick from the push-off foot every step via the existing `emit`/`puff` particle helpers in render/game, very subtle.
 
-Keep this as small and behaviour-neutral as possible. In the release build it must do nothing.
+## 2. Jump / air states
 
-- Read the save key from an optional global: `const KEY = (window.SHKR_DEV && window.SHKR_DEV.saveKey) || "shadowskirr.v1";`. The dev build uses its own key (`shadowskirr.dev.v1`) so dev progress can never touch a player's real save, even on the same origin.
-- Extend the existing debug handle with what the dev panel needs: `saveState`, `paintHome`, `paintLevels`, `startHome`, `show`, `showCard`, `hideCard`, `N`, and a `setS(obj)` that replaces the state object through the same validation `loadState()` uses (clamp `unlocked`/`sel`, make sure `rec` is an object). Don't rename or remove anything that's already on the handle.
-- At the very end of boot, if `typeof window.SHKR_DEV_INIT === "function"`, call it once with the handle. That's the only coupling. If `dev.js` isn't loaded, nothing changes.
-- The legacy-key migration (`lumbra.v1`) should run only for the real key, not for the dev key.
+- **Takeoff anticipation:** on the `jump` event, a quick 2–3 frame view-only crouch-then-extend (the sim jumps instantly, so do it as an overshoot: start the rise pose with legs fully extended and arms flung up, blending from the crouch).
+- **Rise (`vy > 0`):** one knee tucked high, the other leg trailing, arms swept up/back; body stretches vertically (existing stretch is fine but should ease).
+- **Apex (|vy| small):** a brief float pose — limbs more spread, slight forward tuck.
+- **Fall (`vy < 0`):** legs reach down and slightly forward to prepare for landing, arms rise up and out for balance; blend continuously by `vy` rather than flipping at 0.
+- **Air jump (`air` event):** a quick front flip or tuck-spin (full 360° `rot` over ~0.35 s, tucked) so the double jump is clearly different from the first jump.
+- **Landing (`land`/`land2`/`bounce`):** keep `G.squash`, but add a real landing pose: knees bend deep, hip drops, arms swing down-forward, then recover into the run over ~0.12 s (heavier for `land2`). Make the recovery blend into the correct run phase instead of popping.
+- **Gravity flip (`s.flip`):** verify every new pose (including the ball) mirrors correctly when gravity is flipped.
 
-### 2. Create `js/dev.js` (developer build only)
+## 3. Slide → spinning ball (Sonic-style)
 
-A classic script loaded **after** `game.js`. It sets `window.SHKR_DEV = { saveKey: "shadowskirr.dev.v1" }` **before** `game.js` runs, so split it in two:
+Replace the lying-down slide pose with the character curling into a ball and spinning:
 
-- `js/dev-config.js` (loaded **before** `sim.js`): only `window.SHKR_DEV = { saveKey: "shadowskirr.dev.v1" };`.
-- `js/dev.js` (loaded **after** `game.js`): defines `window.SHKR_DEV_INIT = function (api) { ... }`.
+- **Transform in (~0.08–0.12 s) on the `slide` event:** limbs pull in toward the hip (knees to chest, arms wrapped, head tucked) while the whole figure rotates forward; blend the pose toward a tight tuck and fade into the ball drawing.
+- **Ball:** a solid black circle sitting on the ground, radius fitted to the slide hitbox (diameter ≈ `SH` = 0.8, so r ≈ 0.38–0.4; check the visual still fits under low ceilings the slide is used for). Keep the light rim (`FOG.rim`, 1px) around the ball the same way the head has one.
+- **Spin:** rotation angle accumulates from distance travelled (`angle -= distance / r`) so it rolls without slipping, plus extra speed for flair. Show the spin with 2–3 curved spike/quill arcs or a crescent "swoosh" cut-out drawn in `FOG.rim` inside the ball, plus a hint of the head/eye shape on the leading side, so the rotation is readable on a black silhouette.
+- **Motion blur (skip under reduced motion):** 2–3 faint trailing arcs or ghosted circles behind the ball, and small ground sparks/dust using the existing particle system.
+- **Coil charge (`s.ch > 0` while sliding on a Coil):** spin-dash rev — the ball spins faster the longer the charge (scale with `s.ch`), vibrates slightly, and squashes against the ground; dust spits out behind. On the `coil` launch event, burst out of the ball into an extended rising pose with a stretch.
+- **Transform out:** when `s.sl` becomes false (or on jumping out of a slide), unroll back into the run/jump pose over ~0.1 s, matching the current run phase.
+- **Dive (`s.dive`, slide held in the air):** consider curling into the ball in the air too, spinning while it drops, so slide input consistently means "ball". Keep the existing dive pose if it reads better — justify your choice.
 
-Features of `dev.js`:
+## 4. Other states to polish
 
-- **Default dev state = everything unlocked with three rainbow stars.** On first load (no dev save yet), set `unlocked = N` and `rec[n] = { t: 1, s: 4, d: true }` for every level, save, then repaint. Home, the levels grid and the cleared card must all show rainbow stars, and every level must be playable.
-- **Developer panel**: add a "developer" section to the Settings screen (inject DOM from `dev.js`, styled with the existing classes `set-row`, `lbl`, `set-ctl`, `chip`, `chip danger`; don't add new CSS to `style.css`, and put any extra styling inline or in a `<style>` injected by `dev.js`). Controls:
-  - **Unlock all (rainbow)**: sets every level to unlocked + three rainbow stars.
-  - **Reset progress**: back to a fresh game (`unlocked = 1`, `rec = {}`, `sel = 1`), so the real first-time flow can be tested.
-  - **Put progress back**: restores the progression exactly as it was right before the last reset/unlock-all. Before every reset or unlock-all, snapshot `{ unlocked, sel, rec }` to `localStorage` key `shadowskirr.dev.snapshot`; "put back" restores it. Disable or hide the button when there's no snapshot. One level of undo is enough. Keep `music`/`shake` settings untouched by all three actions.
-  - Each destructive action uses the existing `showCard` confirmation pattern (like `#resetBtn` does).
-- A small, unobtrusive **"DEV" badge** (e.g. a `tag` in the home header next to "shadow skirr · hiyroscript") so it's always obvious which build you're looking at.
-- After any change: `saveState()`, `paintHome(false)`, `paintLevels()`, and return home via `show("home"); startHome();` the way the existing reset does.
-- Wrap all `localStorage` access in try/catch, matching `game.js`.
+- **Rail hang (`s.hang >= 0`):** natural pendulum swing driven by a damped spring (body swings back when grabbing, then settles), hands locked on the rail, legs trailing behind the hip with lag; tuck pose (slide held) pulls knees up smoothly instead of snapping. Smooth release when dropping off.
+- **Glide (`s.gl > 0`):** a stable superhero/arms-out glide with gentle bob and trailing legs flutter.
+- **Thermal (`V.thermal`):** floating updraft pose with slow, flowing limb motion (two out-of-phase sines with different periods so it doesn't look mechanical).
+- **Death:** currently the character just disappears (`if (!V.dead)`). If a death particle burst exists in `game.js`, leave it, but optionally add a 1–2 frame hit-pose before vanishing. Do not change death timing.
+- **Win / level clear and home demo:** make sure the new run looks right in the attract-mode demo on the home screen and at the finish.
 
-### 3. `index.html` in the repo is the **developer** page
+## Deliverables & verification
 
-Add the two dev script tags directly to `index.html`: `<script src="js/dev-config.js"></script>` immediately before the `sim.js` tag, and `<script src="js/dev.js"></script>` immediately after the `game.js` tag. Mark each with an HTML comment such as `<!-- dev-only -->` on the same line, so the release build can remove them reliably. Since Pages serves the repo as-is, that's all the developer version needs. Opening `index.html` from disk also gives the developer version.
-
-### 4. Release build script: `tools/build-release.sh` (bash, no npm dependencies)
-
-`tools/build-release.sh <outdir>`:
-
-- Copies `index.html`, `css/`, `js/` and `README.md` into `<outdir>`. Never copy `max`, `tools/`, `.github/` or `.git`.
-- Deletes `js/dev.js` and `js/dev-config.js` from the output and removes every line marked `<!-- dev-only -->` from the output `index.html`. Fail if the expected dev lines aren't found, because that means the markers changed.
-- **Guard:** fail the build (non-zero exit) if anything in the output contains `dev.js`, `dev-config.js`, `dev-only`, `shadowskirr.dev`, the dev panel's text, or any *definition* of `SHKR_DEV` / `SHKR_DEV_INIT` (no `SHKR_DEV =` or `SHKR_DEV_INIT =` assignments; the inert read-only hook lines in `game.js` are allowed). Also confirm every `<script src>` in the output `index.html` points to a file that exists.
-- Stamps a version: replace a placeholder `<meta name="shkr-build" content="dev">` (add it to `index.html`) with `release · <short-sha> · <UTC date>`.
-
-### 5. GitHub Actions workflow: `.github/workflows/build.yml`
-
-Triggers: `push` to `main`, plus `workflow_dispatch`. Ignore pushes that only touch `max` or `*.md` other than `README.md` (paths-ignore), so editing the brief doesn't cut a release.
-
-One job, **release**:
-
-- `actions/checkout@v4`, `actions/setup-node@v4` (Node 20), run `tools/build-release.sh dist/release`, then `node tools/parity-check.js . dist/release`. If the parity check fails, stop: no zip, no release.
-- Zip so that **`index.html` is at the root of the zip** (itch.io requires this): `cd dist/release && zip -r ../shadow-skirr.zip .`.
-- Upload it with `actions/upload-artifact@v4` (name `shadow-skirr-release`), so every run has a downloadable zip on its Actions page.
-- Also publish it to a rolling GitHub Release: tag `latest`, title "Shadow Skirr — latest build", asset `shadow-skirr.zip`, body containing the commit SHA, date and commit message. Delete and recreate the `latest` release/tag each run (e.g. `gh release delete latest --cleanup-tag -y || true` then `gh release create latest ...`), using `GITHUB_TOKEN`. Needs `permissions: contents: write`. The stable download link becomes `https://github.com/hiyroscript/shkr/releases/download/latest/shadow-skirr.zip`.
-
-Pin action versions as above. Keep the workflow readable with comments. **No Pages job.** Pages keeps deploying from the branch the way it does now.
-
-### 6. Release-vs-source parity check: `tools/parity-check.js` (Node, no dependencies)
-
-The release must play **exactly** like the source, minus the dev code. This check runs **automatically on every release build**, in the same job, **after** `build-release.sh` (whose guard proves no dev features are present) and **before** the zip is made. If it fails, no zip is made. It's also what you run locally to verify a build. Use only built-in Node modules (`fs`, `path`, `vm`, `crypto`), since there's no `package.json`.
-
-`node tools/parity-check.js <repo-root> <release-dir>` does two things:
-
-**A. File parity (exact):**
-- Every file in the release must exist in the source, and every source file under `index.html`, `css/` and `js/` must exist in the release **except** `js/dev.js` and `js/dev-config.js`.
-- Every shared file must be **byte-identical** (compare SHA-256), except `index.html`.
-- `index.html` must equal the source after only these differences: the `<!-- dev-only -->` lines removed and the `shkr-build` meta content changed. Normalise exactly those two things in the source copy, then require an exact match. Any other difference fails.
-
-**B. Gameplay parity (behaviour):** `js/sim.js` exposes `SIM.compile`, `SIM.solve`, `SIM.replay`, `SIM.newState` and `SIM.step`, and it is deterministic.
-- In two separate `vm` contexts, load `sim.js` → `levels.js` → `fixes.js` → `demo.js` as classic scripts: one from the source and one from the release. Give each context the minimal globals the files need. Don't load `music.js`, `render.js`, `backdrops.js` or `game.js` here; their parity is covered by the byte-identical check in A.
-- For each of the 30 levels plus `HOME`: compile it in both contexts (applying `FIXES[n]` the same way `game.js`'s `getL` does) and compare a stable JSON serialisation of the compiled level. Then solve it **once** in the source context and `replay` that exact input path in **both** contexts. Compare the final state (won/dead, tick, position, and any other fields on the state) and require identical results. Also replay `DEMO_SOL` on the home demo level in both.
-- If `solve` can't beat a level within its budget, don't fail on that alone. Replay a fixed pseudo-random input sequence (seeded) in both contexts instead and compare the states every tick.
-- Print a short table (level, compiled-hash match, replay match, ticks), exit non-zero on any mismatch, and name the first differing field.
-
-Add a sabotage test to the acceptance checks: change one character of a chart in `/tmp/r/js/levels.js` and confirm the parity check fails, then rebuild.
-
-### 7. README updates
-
-- Under **Play**: Pages is now the **developer build** (all levels unlocked with rainbow stars, dev panel in Settings). The release zip is downloaded from the `latest` release link or from the workflow run's artifacts.
-- New **Builds** section: the repo/Pages is the dev version, the release zip is the repo minus dev code, what `tools/build-release.sh` does, the `<!-- dev-only -->` marker rule (any future dev-only tag must carry it), and the two save keys.
-- Update the **Project structure** tree (`js/dev-config.js`, `js/dev.js`, `tools/build-release.sh`, `tools/parity-check.js`, `.github/workflows/build.yml`) and the script-order note (`dev-config.js` first, `dev.js` last; both are stripped from the release).
-
-## Acceptance checks (run them before you finish)
-
-1. `bash tools/build-release.sh /tmp/r` succeeds.
-2. `/tmp/r` contains no `dev.js`/`dev-config.js`, and `grep -rn "shadowskirr.dev\|dev-only\|SHKR_DEV_INIT =\|SHKR_DEV =" /tmp/r` finds nothing. Sabotage test: temporarily add an unmarked dev `<script>` tag to `index.html` and confirm the guard **fails**, then revert.
-3. `node tools/parity-check.js . /tmp/r` passes, and the sabotage test in section 6 makes it fail.
-3b. The repo's `index.html` loads `dev-config.js` before `sim.js` and `dev.js` after `game.js`.
-4. Serve the repo root (dev) and `/tmp/r` (release) with `python3 -m http.server` and check in a headless browser if one is available, or with the `__SHADOWSKIRR` handle via a Node/jsdom script if not:
-   - Release: fresh profile → only level 1 unlocked, no stars, no DEV badge, no developer section in Settings, save goes to `shadowskirr.v1`.
-   - Dev: fresh profile → `S().unlocked === 30` and every `rec[n].s === 4`, DEV badge visible, developer section present. Reset → level 1 only; Put back → 30 rainbow levels again; Reset then play/clear level 1 then Put back → snapshot restored. Save goes to `shadowskirr.dev.v1`, and `shadowskirr.v1` is never written.
-5. Opening the repo's `index.html` from disk (dev) and `/tmp/r/index.html` from disk (release) both run with no console errors.
-6. Gameplay, music, visuals and the normal "Reset progress" in the release build behave exactly as before. This is not a gameplay change.
-7. Validate the workflow YAML (e.g. `python3 -c "import yaml,sys;yaml.safe_load(open('.github/workflows/build.yml'))"`).
-
-## Deliverable
-
-Commit on a new branch and open a PR to `main` titled **"Automatic release zip + developer build on Pages"**. The PR description should list the files added/changed and the download link for the zip, and note that merging it turns the Pages site into the developer version with no settings change.
+1. Refactored `stick()` (and any small helpers) in `js/render.js`; any view-only event hooks needed in `js/game.js` (e.g. recording `jump`/`air`/`slide`/`coil` event times for transitions).
+2. `node tools/parity-check.js` passes unchanged.
+3. Open `index.html` and check, at several BPMs (slow early levels and fast late ones): run cycle (no foot skating, knees never invert), jump/apex/fall/land blends, double jump flip, slide→ball→unroll, coil spin-dash, rail hang, glide, thermal, gravity flip, low ceilings while in ball form, and reduced-motion mode.
+4. Record a short GIF or screenshots of each state, and write a brief summary of what changed and any tunable constants (put them in one clearly named constants block at the top of the stickman section so they're easy to tweak).
