@@ -1,0 +1,97 @@
+# Builds the RELEASE version of Shadow Skirr and publishes it as a zip.
+#
+# The repo itself is the developer build: GitHub Pages keeps serving the main
+# branch exactly as before, so there is no Pages job here. This workflow only
+# makes the release, which is the repo with the developer code stripped out.
+#
+# The release is gated, every time: build-release.sh fails if any developer
+# code is left in the output, and parity-check.js fails unless the release
+# plays exactly like the source. Either failure stops the job before the zip
+# exists, so nothing is uploaded or published.
+name: Build release
+
+on:
+  push:
+    branches: [main]
+    # Skip pushes that only touch the brief (max) or Markdown other than
+    # README.md. Order matters: include everything, drop max and all .md,
+    # then bring README.md back. (Written as `paths` because negation is
+    # what re-includes README.md, and `paths` is where GitHub documents it.)
+    paths:
+      - '**'
+      - '!max'
+      - '!**.md'
+      - 'README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # to replace the rolling "latest" release
+
+# One run at a time, so two pushes never race on the "latest" tag.
+concurrency:
+  group: release-latest
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Gate 1: copy the game, strip js/dev.js, js/dev-config.js and every
+      # <!-- dev-only --> line, stamp the version, then fail on any leak.
+      - name: Build release (no developer code)
+        run: bash tools/build-release.sh dist/release
+
+      # Gate 2: same files byte for byte, and every level compiles, replays
+      # and dies identically in the source and the release.
+      - name: Parity check (release plays exactly like the source)
+        run: node tools/parity-check.js . dist/release
+
+      # index.html must sit at the root of the zip for itch.io.
+      - name: Zip
+        run: cd dist/release && zip -r ../shadow-skirr.zip .
+
+      - name: Upload zip as a run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow-skirr-release
+          path: dist/shadow-skirr.zip
+          if-no-files-found: error
+
+      # Stable link: https://github.com/<owner>/<repo>/releases/download/latest/shadow-skirr.zip
+      # Only main moves it; a manual run on another branch still builds,
+      # checks and uploads the artifact above.
+      - name: Publish rolling "latest" release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          {
+            echo "Automatic release build of \`main\`."
+            echo
+            echo "- Commit: $(git rev-parse HEAD)"
+            echo "- Date: $(TZ=UTC git log -1 --format=%cd --date=format-local:'%Y-%m-%d %H:%M UTC')"
+            echo "- Built: $(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo
+            echo "Commit message:"
+            echo
+            git log -1 --format=%B | sed 's/^/> /'
+            echo
+            echo "Upload \`shadow-skirr.zip\` as is: \`index.html\` is at the root of the zip."
+          } > release-notes.md
+          # Delete and recreate, so the tag always points at this commit.
+          gh release delete latest --repo "$REPO" --cleanup-tag -y || true
+          gh api -X DELETE "repos/$REPO/git/refs/tags/latest" > /dev/null 2>&1 || true
+          gh release create latest dist/shadow-skirr.zip \
+            --repo "$REPO" \
+            --target "$GITHUB_SHA" \
+            --title "Shadow Skirr — latest build" \
+            --notes-file release-notes.md

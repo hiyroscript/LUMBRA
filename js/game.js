@@ -14,25 +14,35 @@
   const FIX = typeof FIXES !== "undefined" ? FIXES : {};
 
   /* ---------------- saved state ---------------- */
-  const KEY = "shadowskirr.v1", LEGACY_KEY = "lumbra.v1", DEFAULTS = { music: 0.8, shake: true, sel: 1, unlocked: 1, rec: {} };
+  /* An optional global can point the save at another key (the developer build uses its own, see README "Builds").
+     Without it, which is always the case in the release build, the key is the real one. */
+  const REAL_KEY = "shadowskirr.v1";
+  const KEY = (window.SHKR_DEV && window.SHKR_DEV.saveKey) || REAL_KEY, LEGACY_KEY = "lumbra.v1", DEFAULTS = { music: 0.8, shake: true, sel: 1, unlocked: 1, rec: {} };
   let S = loadState();
   function loadState() {
     let raw = {}, str = null;
     try { str = localStorage.getItem(KEY); } catch (e) { str = null; }
-    /* one-time migration from the old save key; the new key wins if both exist */
-    let legacy = null;
-    try { legacy = localStorage.getItem(LEGACY_KEY); } catch (e) { legacy = null; }
-    if (legacy !== null) {
-      if (str === null) { str = legacy; try { localStorage.setItem(KEY, legacy); } catch (e) {} }
-      try { if (localStorage.getItem(KEY) !== null) localStorage.removeItem(LEGACY_KEY); } catch (e) {}
+    /* one-time migration from the old save key; the new key wins if both exist. Only for the real key. */
+    if (KEY === REAL_KEY) {
+      let legacy = null;
+      try { legacy = localStorage.getItem(LEGACY_KEY); } catch (e) { legacy = null; }
+      if (legacy !== null) {
+        if (str === null) { str = legacy; try { localStorage.setItem(KEY, legacy); } catch (e) {} }
+        try { if (localStorage.getItem(KEY) !== null) localStorage.removeItem(LEGACY_KEY); } catch (e) {}
+      }
     }
     try { raw = JSON.parse(str || "{}") || {}; } catch (e) { raw = {}; }
+    return checkState(raw);
+  }
+  /* the validation every state goes through, whether loaded or set through the debug handle */
+  function checkState(raw) {
     const o = {};
     for (const k in DEFAULTS) o[k] = raw[k] !== undefined && raw[k] !== null ? raw[k] : JSON.parse(JSON.stringify(DEFAULTS[k]));
     o.unlocked = Math.max(1, Math.min(N, o.unlocked | 0 || 1)); o.sel = Math.max(1, Math.min(N, o.sel | 0 || 1));
     if (typeof o.rec !== "object" || !o.rec) o.rec = {};
     return o;
   }
+  function setS(obj) { S = checkState(obj || {}); return S; }
   function saveState() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
   function rec(n) { return S.rec[n] || (S.rec[n] = { t: 0, s: 0, d: false }); }
   function starsFor(t) { return t <= 1 ? 4 : t <= 3 ? 3 : t <= 7 ? 2 : 1; }   /* 4 = three rainbow stars */
@@ -388,7 +398,20 @@
   setTimeout(leaveSplash, 1900);
   $("#splash").addEventListener("pointerdown", function () { audioGesture(); leaveSplash(); });
   requestAnimationFrame(loop);
-  window.__SHADOWSKIRR = { G: G, S: function () { return S; }, startLevel: startLevel, keys: keys, getL: getL };
+  window.__SHADOWSKIRR = { G: G, S: function () { return S; }, startLevel: startLevel, keys: keys, getL: getL,
+    saveState: saveState, paintHome: paintHome, paintLevels: paintLevels, startHome: startHome, show: show,
+    showCard: showCard, hideCard: hideCard, N: N, setS: setS };
   window.__LUMBRA = window.__SHADOWSKIRR;   /* legacy alias for old test scripts / console snippets */
+
+  /* Developer-build hook. The developer build loads one more script after this one, which defines an init
+     function; it runs once the page's scripts have all run, so a script that comes later can still define it.
+     In the release build that script is absent and this does nothing. */
+  let devHooked = false;
+  function devHook() {
+    const init = window.SHKR_DEV_INIT;
+    if (devHooked || typeof init !== "function") return;
+    devHooked = true; init(window.__SHADOWSKIRR);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", devHook); else devHook();
 })();
 
