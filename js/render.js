@@ -470,13 +470,13 @@ const RENDER = (function () {
     hands: { spring: 1.5, damp: .55 },    /* hand offsets settle as a spring instead (w = rate * spring), so arms overshoot a little */
     head: { kick: .1, hz: 5, damp: .5, max: .06 },  /* head lag per unit/beat of vertical speed change (take-off, landing) */
     run: {
-      stance: .21,                        /* share of the cycle a foot is planted. One cycle = 1 beat = 2 steps, so feet strike on beats and half-beats */
+      stance: .23,                        /* share of the cycle a foot is planted. One cycle = 1 beat = 2 steps, so feet strike on beats and half-beats */
       contact: .3, foot: .05, heel: .1,   /* foot strike ahead of the hip, ankle height, heel lift at toe-off */
-      hip: .84, bob: .035,                /* hip height and half its bob (low at mid-stance, high in flight) */
-      lean: .26, pitch: .05,              /* torso lean (rad, ~15 deg) and its pitch swing per step (~3 deg) */
-      torso: .55, neck: .23,
-      armFwd: .9, armBack: -1.25,         /* upper arm swing from straight down (rad), front and back */
-      flexFwd: 1.9, flexBack: .75,        /* elbow bend (rad): fist up at the chin in front, arm opening behind the hip */
+      hip: .79, bob: .035,                /* hip height (a low, driving sprint) and half its bob (low at mid-stance, high in flight) */
+      lean: .42, pitch: .05,              /* torso lean (rad, ~24 deg) and its pitch swing per step (~3 deg) */
+      torso: .55, neck: .23, head: 1.1,   /* head tilt as a share of the lean: the head leads, pushed forward along the body line */
+      armFwd: .75, armBack: -1.4,         /* upper arm swing from straight down (rad): forward and down in front, up behind at the back */
+      flexFwd: 1, flexBack: 1,            /* elbow bend (rad): fist punching forward at chest height, forearm hanging behind */
       /* swing leg after toe-off, as cycle phase, thigh angle from straight down (deg, + forward) and knee bend (deg):
          heel kicks up to the seat, knee drives up to near horizontal, the shin reaches out, then paws back into the
          strike. Toe-off and strike angles are solved from the planted foot, so swing and stance join exactly. */
@@ -586,7 +586,7 @@ const RENDER = (function () {
     const hy = runHipY(u) - w * (heavy ? Ld.heavyDrop : Ld.drop), lean = R.lean + R.pitch * Math.sin(ph) + w * Ld.lean;
     p[HIP] = RUN_HX; p[HIP + 1] = hy;
     p[NECK] = RUN_HX + R.torso * Math.sin(lean); p[NECK + 1] = hy + R.torso * Math.cos(lean);
-    p[HEAD] = p[NECK] + R.neck * Math.sin(lean * .45); p[HEAD + 1] = p[NECK + 1] + R.neck * Math.cos(lean * .45);
+    p[HEAD] = p[NECK] + R.neck * Math.sin(lean * R.head); p[HEAD + 1] = p[NECK + 1] + R.neck * Math.cos(lean * R.head);
     runFoot(p, F1, u, hy); runFoot(p, F2, v2, hy);
     runArm(p, H1, u, lean); runArm(p, H2, v2, lean);
     if (w > 0) {
