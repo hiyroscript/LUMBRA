@@ -23,6 +23,7 @@ On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts th
 
 - 30 levels plus a home screen, each with its own soundtrack generated live with Web Audio. There are no audio files and no sound effects. The music is the only sound in the game.
 - The home screen plays an attract-mode demo run behind the menu.
+- The runner is animated procedurally and stays in step with the music. The run cycle is locked to the beat: a foot strikes on every beat and half-beat, and the planted foot never slides along the ground. Jumps get a take-off crouch and a landing crouch, and a Halo air jump is a tucked front flip. Slides and dives curl into a spinning ball, and charging a Coil revs it up. Moving between poses blends smoothly instead of snapping.
 - 15 hazards, each introduced on its own level. How each one works is described in [Hazards](#hazards).
 
   | Level | Hazard | Level | Hazard | Level | Hazard |
@@ -36,7 +37,7 @@ On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts th
 - Star rating per level, based on how many tries the first clear took: 1 try earns three rainbow stars, up to 3 tries three stars, up to 7 tries two stars, more than that one star. Try counts are recorded per level, and clearing a level unlocks the next one.
 - Rebirth: on a cleared level, "rebirth level" clears that level's stars and tries. Unlocked levels stay unlocked.
 - Settings: music volume, screen shake on/off, and reset all progress.
-- Reduced motion: with `prefers-reduced-motion: reduce`, the play button's pulse animation, the foliage sway and the drifting fog wisps are turned off.
+- Reduced motion: with `prefers-reduced-motion: reduce`, the play button's pulse animation, the foliage sway and the drifting fog wisps are turned off. The runner keeps all its poses but drops the purely decorative extras: dust kicks and sparks, the ball's motion trail, the Coil shake, head and hand follow-through, the glide bob and the drifting limbs in a Thermal. Its Rail swing settles without wobbling.
 - Progress and settings are saved in `localStorage`.
 
 ## Hazards
@@ -148,7 +149,7 @@ shkr/
 │   ├── demo.js         precomputed input for the home screen's attract-mode demo (DEMO_SOL)
 │   ├── music.js        sequenced Web Audio synthesis: one original track per level, built from its spec and chart
 │   ├── backdrops.js    the terrain background layer: five looping parallax strips of fog-grey silhouettes per world
-│   ├── render.js       "fog silhouette" renderer: misty sky, grey layers, black terrain, colour only on hazards
+│   ├── render.js       "fog silhouette" renderer: misty sky, grey layers, black terrain, colour only on hazards, and the runner's animation
 │   ├── game.js         state, clock, input, HUD, home screen, results, rebirth
 │   └── dev.js          developer build only: rainbow unlock-all default, developer section in Settings, DEV badge (loaded last)
 ├── tools/
@@ -218,6 +219,7 @@ node tools/parity-check.js . /tmp/shadow-skirr
   `dev-config.js` → `sim.js` → `levels.js` → `fixes.js` → `demo.js` → `music.js` → `backdrops.js` → `render.js` → `game.js` → `dev.js`
   `dev-config.js` comes first so `game.js` sees the developer save key, and `dev.js` comes last. Both are stripped from the release, which loads `sim.js` through `game.js` only.
 - **Don't convert to ES modules** unless you also refactor the shared globals and serve the game from a local server. Modules don't share a global scope and don't load from `file://`.
+- **Runner animation** is view-only. The stickman section of `js/render.js` reads the simulation state, the beat and the frame time, but never writes to `SIM` state, so replays and the demo are unaffected. `game.js` passes each simulation event to it through `RENDER.cue`. Every tunable (run cycle keys, blend rates, ball, hang, glide, timings) is in the `ANIM` block at the top of that section.
 - **Save data** lives under the `localStorage` key `shadowskirr.v1` in the release and `shadowskirr.dev.v1` in the developer build. Saves from the old `lumbra.v1` key are migrated automatically on load, for the real key only.
 - **Debug handle:** `window.__SHADOWSKIRR` exposes `G` (game state), `S()` (saved state), `startLevel(n)`, `keys` (input state), `getL(n)` (compiled level), `N` (level count), `saveState()`, `paintHome(retitle)`, `paintLevels()`, `startHome()`, `show(screen)`, `showCard({...})`, `hideCard()` and `setS(obj)`, which replaces the saved state through the same validation as loading. `window.__LUMBRA` is kept as a legacy alias for old scripts.
 - **Fonts** (Space Grotesk, JetBrains Mono) load from Google Fonts. Offline, the page falls back to system fonts.
