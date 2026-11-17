@@ -14,10 +14,10 @@ Either way there is nothing to install: open `index.html` in a browser.
 | Action | Keyboard | Mouse | Touch |
 |---|---|---|---|
 | Jump | `Space`, `↑`, `W` | left click | tap the right half of the screen |
-| Slide | `↓`, `S` | right click | hold the left half of the screen |
+| Roll | `↓`, `S` | right click | hold the left half of the screen |
 | Pause / resume | `Esc` | pause button (top right) | pause button (top right) |
 
-On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts the selected level. When a card is open (pause, level cleared, confirmations), `Enter` picks its first button. The game also pauses itself when the tab is hidden or the window loses focus.
+On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts the selected level. When a card is open (new hazard, pause, level cleared, confirmations), `Enter` picks its first button. The game also pauses itself when the tab is hidden or the window loses focus.
 
 ## Features
 
@@ -26,8 +26,10 @@ On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts th
 - Levels are built like hand-made set pieces, not one obstacle after another: Bloom towers and tall steps to land on between pits, Halo chains and Comet glides over spike beds, Fade bridges, Rail rides over spike fields with a blade to drop under, castle gates (Prism, gate and low tunnel), crusher decks, Anchor combs that ask for a press every half beat, Glass panes over Coils and a Zenith section on the ceiling. The ground climbs and drops in stairs and towers instead of staying flat, and bars, hanging walls, floating spike blocks, tunnels and crushers keep the space overhead as busy as the ground. Each level reads as clear sections: intro, build, first peak, a one-bar breather, the climax and a short outro, and the music's energy follows them.
 - Later levels keep using every hazard the earlier ones introduced and often combine two or three at once: a Halo over a row of Fade tiles, Glass you dive through onto a Coil, a Mimic eye that reads your height inside a Thermal. Level 30 uses all 15. The music marks each combo with a short riser in the bar before it, and every special-hazard action (Bloom, Fade, Glass, Flicker, Mimic) plays an octave higher with its own glassy tone.
 - The home screen plays an attract-mode demo run behind the menu.
-- The runner is animated procedurally and stays in step with the music. The run cycle is locked to the beat: a foot strikes on every beat and half-beat, and the planted foot never slides along the ground. Jumps get a take-off crouch and a landing crouch, and a Halo air jump is a tucked front flip. Slides and dives curl into a spinning ball, and charging a Coil revs it up. Moving between poses blends smoothly instead of snapping.
+- The runner is animated procedurally and stays in step with the music. The run cycle is locked to the beat: a foot strikes on every beat and half-beat, and the planted foot never skids along the ground. Jumps get a take-off crouch and a landing crouch, and a Halo air jump is a tucked front flip. Rolls and dives curl into a spinning ball, and charging a Coil revs it up. Moving between poses blends smoothly instead of snapping.
 - 15 hazards, each introduced on its own level. How each one works is described in [Hazards](#hazards).
+- New hazard cards: the first time you start the level that brings in a hazard (from the home screen, "next level" or "replay"; not on a restart), the game waits, frozen at the start with no music, behind a card that names the hazard, says in a few plain words what to do, and shows it in a small looping preview: the runner meeting that hazard and using it, drawn by the game's own renderer in the level's colours. "Understood" (or `Enter`) starts the run from the first beat.
+- Objective box: at the start of a level, a box says "Run to the end" and shows the jump and roll controls side by side. It fades out by itself after a few seconds (later while the mouse is over it), or, on a level with a new hazard card, sits right above the card and leaves with it. Its "Don't show again" checkbox turns it off; the Objective tips setting turns it back on.
 
   | Level | Hazard | Level | Hazard | Level | Hazard |
   |---|---|---|---|---|---|
@@ -39,8 +41,8 @@ On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts th
 
 - Star rating per level, based on how many tries the first clear took: 1 try earns three rainbow stars, up to 3 tries three stars, up to 7 tries two stars, more than that one star. Try counts are recorded per level, and clearing a level unlocks the next one.
 - Rebirth: on a cleared level, "rebirth level" clears that level's stars and tries. Unlocked levels stay unlocked.
-- Settings: music volume, screen shake on/off, and reset all progress.
-- Reduced motion: with `prefers-reduced-motion: reduce`, the play button's pulse animation, the foliage sway and the drifting fog wisps are turned off. The runner keeps all its poses but drops the purely decorative extras: dust kicks and sparks, the ball's motion trail, the Coil shake, head and hand follow-through, the glide bob and the drifting limbs in a Thermal. Its Rail swing settles without wobbling.
+- Settings: music volume, screen shake on/off, objective tips on/off (the objective box at the start of a level), and reset all progress. Resetting progress keeps the settings.
+- Reduced motion: with `prefers-reduced-motion: reduce`, the play button's pulse animation, the foliage sway and the drifting fog wisps are turned off. The runner keeps all its poses but drops the purely decorative extras: dust kicks and sparks, the ball's motion trail, the Coil shake, head and hand follow-through, the glide bob and the drifting limbs in a Thermal. Its Rail swing settles without wobbling. A new hazard card shows one still frame of its preview instead of the loop.
 - Progress and settings are saved in `localStorage`.
 
 ## Hazards
@@ -50,18 +52,18 @@ Everything in the game is timed in beats, so the timings below hold at every tem
 ### The basics
 
 - **Jump** keeps you in the air for one beat and lifts your feet to about one and a half times your height. A press up to 0.2 beats before you land still counts, and so does one up to 0.15 beats after you run off a ledge.
-- **Slide** lasts at least a quarter of a beat, and you stay down while something is still overhead.
-- **Dive:** slide while you are in the air and you fall three times as fast. It cuts a jump short, and it is how you break Glass.
+- **Roll** lasts at least a quarter of a beat, and you stay down while something is still overhead.
+- **Dive:** roll while you are in the air and you fall three times as fast. It cuts a jump short, and it is how you break Glass.
 - **Plain obstacles** take the colours of each level's scenery:
   - spikes, wide spikes and tall spikes: jump them;
-  - bars hanging just above the ground: slide under them;
+  - bars hanging just above the ground: roll under them;
   - walls that hang down to just above your head: stay on the ground and don't jump;
   - pits: jump them;
   - steps up and down. Running into the face of a step up kills you, so jump onto it. The tallest steps are too high for a plain jump and always come with a Bloom, Halo, Rift or Coil to get you up;
-  - floating spike blocks at mid height (from level 2): too high to run under standing and too low to clear with a jump from close up. Slide under, or jump early;
+  - floating spike blocks at mid height (from level 2): too high to run under standing and too low to clear with a jump from close up. Roll under, or jump early;
   - spiked steps (from level 6): a step up with spikes along its top edge. Jump from further back so you land past them;
-  - low tunnels (from level 10): a long, low ceiling with spikes on top. Slide through the whole of it; you can't jump inside;
-  - hurdle pairs (from level 14): a spike with a bar one beat after it. Jump the spike, then slide (or dive) as soon as you come down;
+  - low tunnels (from level 10): a long, low ceiling with spikes on top. Roll through the whole of it; you can't jump inside;
+  - hurdle pairs (from level 14): a spike with a bar one beat after it. Jump the spike, then roll (or dive) as soon as you come down;
   - crushers (from level 18): heavy blocks that pound the ground on every off-beat and lift on every beat. One you reach while it is down is a block to jump over; one you reach while it is up is overhead, so stay on the ground. The music's lead line plays on the ones to jump;
   - rolling blades (from level 22): saws rolling towards you along the ground at half your speed. Jump them as they arrive; the lead line plays on that moment.
 
@@ -69,7 +71,7 @@ Every hazard below has its own colour, so you can always tell it from the scener
 
 ### <img src="docs/hazards/bloom.svg" width="16" height="16" alt=""> Bloom (level 1, red `#FF2952`)
 
-A bounce pad on the ground. Run onto it and it throws you about twice as high as a normal jump, for about one and a half beats in the air. Blooms sit in front of wide pits and tall steps. Jumping over one skips the bounce, and it never hurts you. If you are still holding slide when it launches you, you won't dive until you let go.
+A bounce pad on the ground. Run onto it and it throws you about twice as high as a normal jump, for about one and a half beats in the air. Blooms sit in front of wide pits and tall steps. Jumping over one skips the bounce, and it never hurts you. If you are still holding roll when it launches you, you won't dive until you let go.
 
 ### <img src="docs/hazards/halo.svg" width="16" height="16" alt=""> Halo (level 3, cyan `#19E3E3`)
 
@@ -85,7 +87,7 @@ Stepping-stone tiles over a pit. A tile starts to fade the moment you touch it a
 
 ### <img src="docs/hazards/prism.svg" width="16" height="16" alt=""> Prism (level 9, orange `#FF9F1A`)
 
-A spinning crystal at head height, followed by a gate: a tall column of orange diamonds that you can't jump over. Run or jump through the crystal and the gate opens as you reach it. Reach the gate without the crystal and it kills you. Sliding under the crystal misses it.
+A spinning crystal at head height, followed by a gate: a tall column of orange diamonds that you can't jump over. Run or jump through the crystal and the gate opens as you reach it. Reach the gate without the crystal and it kills you. Rolling under the crystal misses it.
 
 ### <img src="docs/hazards/anchor.svg" width="16" height="16" alt=""> Anchor (level 11, sky blue `#1FA8FF`, zone with falling chevrons)
 
@@ -97,20 +99,20 @@ A bar overhead that you can hang from.
 
 - Jump and keep holding jump: near the top of the jump you grab the rail and ride along it.
 - Hold jump to keep hanging, and let go to drop. You also drop at the end of the rail.
-- Hold slide while hanging to pull your legs up over tall posts.
+- Hold roll while hanging to pull your legs up over tall posts.
 - You can't hang past a spiked blade on the rail. Let go before it, run under it on the ground, then jump and grab the rail again.
 
 ### <img src="docs/hazards/rift.svg" width="16" height="16" alt=""> Rift (level 15, magenta `#EE3DFF`)
 
-A portal at head height with a dashed line up to its exit. Run or jump into it and it lifts you straight up to about twice the height of a jump, where you hang still for an instant and then fall. Rifts get you onto ledges too tall to jump. Sliding under one misses it, and each Rift works once per try.
+A portal at head height with a dashed line up to its exit. Run or jump into it and it lifts you straight up to about twice the height of a jump, where you hang still for an instant and then fall. Rifts get you onto ledges too tall to jump. Rolling under one misses it, and each Rift works once per try. A Rift sits right in front of the tall step it lifts you onto, so run straight in and you fall against the step's face before you are over it: tap roll just before the Rift, so that you stand up inside it, a little later and closer to the step, and you land on top.
 
 ### <img src="docs/hazards/comet.svg" width="16" height="16" alt=""> Comet (level 17, yellow `#FFEE1A`)
 
-A comet floating just above head height. Catch it in mid-air and you glide level for one beat, carried across pits without falling. Slide to drop out of the glide early, and landing ends it. It only works in the air: running under it does nothing.
+A comet floating just above head height. Catch it in mid-air and you glide level for one beat, carried across pits without falling. Roll to drop out of the glide early, and landing ends it. It only works in the air: running under it does nothing.
 
 ### <img src="docs/hazards/thermal.svg" width="16" height="16" alt=""> Thermal (level 19, orange-red `#FF5B2E`, zone with rising wavy lines)
 
-An updraft that carries you up on its own, to almost twice the height of a jump. Jump does nothing inside it, and holding slide makes you sink (or slide along the ground if you are already down). Inside, rocks rise from the ground and blocks hang from above. Float over the rocks, and sink under the blocks.
+An updraft that carries you up on its own, to almost twice the height of a jump. Jump does nothing inside it, and holding roll makes you sink (or roll along the ground if you are already down). Inside, rocks rise from the ground and blocks hang from above. Float over the rocks, and sink under the blocks.
 
 ### <img src="docs/hazards/mimic.svg" width="16" height="16" alt=""> Mimic (level 21, deep blue `#3D6BFF`)
 
@@ -124,14 +126,14 @@ An eye on a post, followed by a beam.
 
 ### <img src="docs/hazards/glass.svg" width="16" height="16" alt=""> Glass (level 23, bright green `#4BEB2A`)
 
-A glass pane high above the ground, often level with the ground you just came from. You can run across it, and bumping its underside while jumping just stops you. To get below it, dive onto it: slide in mid-air as you land, and it shatters and you fall through. Running into its edge side-on kills you, like a wall.
+A glass pane high above the ground, often level with the ground you just came from. You can run across it, and bumping its underside while jumping just stops you. To get below it, dive onto it: roll in mid-air as you land, and it shatters and you fall through. Running into its edge side-on kills you, like a wall.
 
 ### <img src="docs/hazards/coil.svg" width="16" height="16" alt=""> Coil (level 25, teal `#19E8A6`)
 
 A spring on the ground.
 
-- Slide onto it and keep holding slide to charge it. The spring squeezes down as it charges.
-- Let go of slide, or slide off its end, to launch.
+- Roll onto it and keep holding roll to charge it. The spring squeezes down as it charges.
+- Let go of roll, or roll off its end, to launch.
 - You need at least 0.15 beats of charge. A full beat of charge gives the biggest launch, as high as a Bloom bounce.
 - Jumping off the Coil instead throws the charge away.
 
@@ -141,7 +143,7 @@ Floor tiles in two sets. One set is solid and the other is only a dashed outline
 
 ### <img src="docs/hazards/zenith.svg" width="16" height="16" alt=""> Zenith (level 29, indigo `#6A4DFF`, zone with upward chevrons)
 
-Gravity flips. When you enter the zone you are thrown up onto the ceiling and run along it upside down, with the level mirrored above you. Jump and slide still work relative to you: jump pushes you away from the ceiling. Leaving the zone flips you back down. A gap in the ceiling is a pit like any other.
+Gravity flips. When you enter the zone you are thrown up onto the ceiling and run along it upside down, with the level mirrored above you. Jump and roll still work relative to you: jump pushes you away from the ceiling. Leaving the zone flips you back down. A gap in the ceiling is a pit like any other.
 
 ## Difficulty
 
@@ -149,7 +151,7 @@ Every level is scored with one number, **D**, measured from the level itself and
 
 | Term | What it measures |
 |---|---|
-| `aps` | required actions per second: presses of jump or slide on a minimal winning path, plus the releases whose timing matters (dropping off a Rail, launching off a Coil) |
+| `aps` | required actions per second: presses of jump or roll on a minimal winning path, plus the releases whose timing matters (dropping off a Rail, launching off a Coil) |
 | `gap` | the 10th-percentile time between consecutive actions (the fastest bursts) |
 | `slack` | the largest safety margin (0 to 0.3) the level still solves with; less slack means tighter timing somewhere |
 | `mech` | mean number of different hazards in each 2-bar window |
@@ -201,8 +203,8 @@ shkr/
 │   ├── demo.js         precomputed input for the home screen's attract-mode demo (DEMO_SOL)
 │   ├── music.js        sequenced Web Audio synthesis: one original track per level, built from its spec and chart
 │   ├── backdrops.js    the terrain background layer: five looping parallax strips of fog-grey silhouettes per world
-│   ├── render.js       "fog silhouette" renderer: misty sky, grey layers, black terrain, colour only on hazards, and the runner's animation
-│   ├── game.js         state, clock, input, HUD, home screen, results, rebirth
+│   ├── render.js       "fog silhouette" renderer: misty sky, grey layers, black terrain, colour only on hazards, and the runner's animation (RENDER.create makes a second one for the hazard previews)
+│   ├── game.js         state, clock, input, HUD, home screen, objective box, new hazard cards and their previews, results, rebirth
 │   └── dev.js          developer build only: rainbow unlock-all default, developer section in Settings, DEV badge (loaded last)
 ├── tools/
 │   ├── build-release.sh   makes the release: the repo minus the developer code, with a guard against leaks
@@ -240,7 +242,7 @@ One source tree, two builds:
 
 The developer build needs no build step: Pages keeps deploying the `main` branch root exactly as before. Because the two builds use different save keys, the developer build never reads or writes a player's real save, even on the same origin.
 
-**Developer section** (Settings, below the normal rows). Each action asks for confirmation first, keeps the music and shake settings, and returns to the home screen.
+**Developer section** (Settings, below the normal rows). Each action asks for confirmation first, keeps the settings (music, shake, objective tips), and returns to the home screen.
 
 - *Unlock all (rainbow)*: every level unlocked with three rainbow stars.
 - *Reset progress*: a fresh game (level 1, no stars, no tries), to test the real first-time flow.
@@ -276,6 +278,7 @@ node tools/parity-check.js . /tmp/shadow-skirr
   `dev-config.js` comes first so `game.js` sees the developer save key, and `dev.js` comes last. Both are stripped from the release, which loads `sim.js` through `game.js` only.
 - **Don't convert to ES modules** unless you also refactor the shared globals and serve the game from a local server. Modules don't share a global scope and don't load from `file://`.
 - **Runner animation** is view-only. The stickman section of `js/render.js` reads the simulation state, the beat and the frame time, but never writes to `SIM` state, so replays and the demo are unaffected. `game.js` passes each simulation event to it through `RENDER.cue`. Every tunable (run cycle keys, blend rates, ball, hang, glide, timings) is in the `ANIM` block at the top of that section.
+- **New hazard cards** (`INTRO` in `js/game.js`): each hazard has its card text and a tiny preview chart in the same chart language as the levels, played by the real simulation with a scripted input (`in`, in beats) and drawn by a second renderer (`RENDER.create`) on the card's own canvas, with its own clock. It never touches the frozen game's state, clock or music. While the card is up the game is in mode `"intro"`: the run is set up and its first frame drawn, but the music and the clock only start on "Understood". If you change how a hazard works, check that its preview still plays out: run its chart and input through `SIM.step` and look for its event (`bounce`, `halo`, `rift`...) and no death before `to`.
 - **Save data** lives under the `localStorage` key `shadowskirr.v1` in the release and `shadowskirr.dev.v1` in the developer build. Saves from the old `lumbra.v1` key are migrated automatically on load, for the real key only.
 - **Debug handle:** `window.__SHADOWSKIRR` exposes `G` (game state), `S()` (saved state), `startLevel(n)`, `keys` (input state), `getL(n)` (compiled level), `N` (level count), `saveState()`, `paintHome(retitle)`, `paintLevels()`, `startHome()`, `show(screen)`, `showCard({...})`, `hideCard()` and `setS(obj)`, which replaces the saved state through the same validation as loading. `window.__LUMBRA` is kept as a legacy alias for old scripts.
 - **Fonts** (Space Grotesk, JetBrains Mono) load from Google Fonts. Offline, the page falls back to system fonts.

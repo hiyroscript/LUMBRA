@@ -11,12 +11,13 @@
   const now = function () { return performance.now() / 1000; };
   const TPB = SIM.TPB, DX = SIM.DX, CH = SIM.CH, N = LEVELS.length;
   const TOUCH = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+  const RM = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const FIX = typeof FIXES !== "undefined" ? FIXES : {};
 
   /* ---------------- saved state ---------------- */
   /* optional save-key override (README: Builds); without it, the real key */
   const REAL_KEY = "shadowskirr.v1";
-  const KEY = (window.SHKR_DEV && window.SHKR_DEV.saveKey) || REAL_KEY, LEGACY_KEY = "lumbra.v1", DEFAULTS = { music: 0.8, shake: true, sel: 1, unlocked: 1, rec: {} };
+  const KEY = (window.SHKR_DEV && window.SHKR_DEV.saveKey) || REAL_KEY, LEGACY_KEY = "lumbra.v1", DEFAULTS = { music: 0.8, shake: true, objective: true, sel: 1, unlocked: 1, rec: {} };
   let S = loadState();
   function loadState() {
     let raw = {}, str = null;
@@ -39,6 +40,7 @@
     for (const k in DEFAULTS) o[k] = raw[k] !== undefined && raw[k] !== null ? raw[k] : JSON.parse(JSON.stringify(DEFAULTS[k]));
     o.unlocked = Math.max(1, Math.min(N, o.unlocked | 0 || 1)); o.sel = Math.max(1, Math.min(N, o.sel | 0 || 1));
     if (typeof o.rec !== "object" || !o.rec) o.rec = {};
+    o.objective = o.objective !== false;   /* saves from before the setting existed still show the objective box */
     return o;
   }
   function setS(obj) { S = checkState(obj || {}); return S; }
@@ -87,27 +89,42 @@
     if (el && id !== "splash") { void el.offsetWidth; el.classList.add("enter"); }
     if (id === "levels") paintLevels();
     if (id === "home") paintHome(true);
+    if (id === "settings") paintSettings();
   }
   $$("[data-go]").forEach(function (b) { b.addEventListener("click", function () { show(b.dataset.go); }); });
 
   /* ---------------- cards ---------------- */
   const overlay = $("#overlay"), cardEl = $("#card");
-  let cardActs = [];
+  let cardActs = [], cardStop = null, cardFade = 0;
+  /* o: cls (extra card class), eyebrow, title, accent (a colour under the title), body, stars, stats, acts [{ t, solid, danger, fn }],
+     pv (adds a preview canvas above the eyebrow; the text is its label), open (called with the card element once
+     it is in the page; it may return a function, which runs when the card goes away) */
   function showCard(o) {
+    stopCard(); clearTimeout(cardFade);
+    if (overlay.classList.contains("out")) clearCard();
     let html = "";
+    if (o.pv) html += '<div class="pv"><canvas role="img" aria-label="' + o.pv + '"></canvas></div>';
     if (o.eyebrow) html += '<div class="eyebrow">' + o.eyebrow + "</div>";
-    if (o.title) html += "<h2>" + o.title + "</h2>";
+    if (o.title) html += "<h2" + (o.accent ? ' class="accent" style="--hz:' + o.accent + '"' : "") + ">" + o.title + "</h2>";
     if (o.stars !== undefined) html += starsHTML(o.stars, "big");
     if (o.body) html += "<p>" + o.body + "</p>";
     if (o.stats) { html += '<div class="stat-row">'; o.stats.forEach(function (s) { html += "<div><b>" + s[0] + "</b><span>" + s[1] + "</span></div>"; }); html += "</div>"; }
     html += '<div class="acts">';
     (o.acts || []).forEach(function (a, i) { html += '<button class="chip' + (a.solid ? " solid" : "") + (a.danger ? " danger" : "") + '" data-act="' + i + '">' + a.t + "</button>"; });
     html += "</div>";
-    cardEl.innerHTML = html; cardActs = o.acts || []; overlay.classList.add("on"); G.cardUp = true;
+    cardEl.innerHTML = html; cardEl.className = "card" + (o.cls ? " " + o.cls : ""); cardActs = o.acts || []; overlay.classList.add("on"); G.cardUp = true;
     cardEl.style.animation = "none"; void cardEl.offsetWidth; cardEl.style.animation = "";
     if (o.stars !== undefined) $$(".stars.big .star", cardEl).forEach(function (el, i) { setTimeout(function () { el.classList.add("pop"); }, 260 + i * 280); });
+    if (o.open) cardStop = o.open(cardEl) || null;
   }
-  function hideCard() { overlay.classList.remove("on"); cardEl.innerHTML = ""; cardActs = []; G.cardUp = false; }
+  /* fade === true: a short fade out, which takes a docked objective box with it */
+  function hideCard(fade) {
+    stopCard(); cardActs = []; G.cardUp = false; clearTimeout(cardFade);
+    if (fade === true && overlay.classList.contains("on")) { overlay.classList.add("out"); cardFade = setTimeout(clearCard, 200); }
+    else clearCard();
+  }
+  function stopCard() { if (cardStop) { const f = cardStop; cardStop = null; f(); } }
+  function clearCard() { overlay.classList.remove("on", "out"); cardEl.innerHTML = ""; undockObjective(); }
   overlay.addEventListener("click", function (e) {
     const b = e.target.closest("[data-act]"); if (!b) return;
     const a = cardActs[+b.dataset.act]; if (a && a.fn) a.fn();
@@ -146,7 +163,7 @@
   $("#nextBtn").addEventListener("click", function () { browse(1); });
   function homeTheme() { const n = Math.min(S.sel, S.unlocked); return LEVELS[n - 1]; }
   function startHome() {
-    G.mode = "home"; G.paused = false; $("#hud").classList.remove("on"); $("#msBanner").classList.remove("show");
+    G.mode = "home"; G.paused = false; $("#hud").classList.remove("on"); hideObjective();
     const def = homeTheme();
     G.L = demoL; G.spb = 60 / HOME.mu[0]; G.st = SIM.newState(); G.st.ev = []; G.beat0 = 0; G.squash = 0; G.restY = 0; G.snap = true;
     RENDER.setHome(true); RENDER.setLevel(demoL, def.th, def.n * 101);
@@ -189,20 +206,142 @@
   const vol = $("#volRange");
   vol.value = Math.round(S.music * 100); $("#volOut").textContent = vol.value;
   vol.addEventListener("input", function () { S.music = vol.value / 100; $("#volOut").textContent = vol.value; MUSIC.setVol(S.music); saveState(); });
-  const sw = $("#shakeSw"); sw.setAttribute("aria-pressed", S.shake ? "true" : "false");
-  sw.addEventListener("click", function () { S.shake = !S.shake; sw.setAttribute("aria-pressed", S.shake ? "true" : "false"); saveState(); });
+  const sw = $("#shakeSw"), osw = $("#objSw");
+  /* switch states follow S, which can change while playing ("Don't show again"), so they are synced whenever Settings opens */
+  function paintSettings() { sw.setAttribute("aria-pressed", S.shake ? "true" : "false"); osw.setAttribute("aria-pressed", S.objective ? "true" : "false"); }
+  paintSettings();
+  sw.addEventListener("click", function () { S.shake = !S.shake; paintSettings(); saveState(); });
+  osw.addEventListener("click", function () { S.objective = !S.objective; paintSettings(); saveState(); });
   $("#resetBtn").addEventListener("click", function () {
     showCard({ eyebrow: "settings", title: "Reset everything?", body: "All unlocks, stars and try counts will be cleared.",
       acts: [{ t: "reset", danger: true, fn: function () { S.rec = {}; S.unlocked = 1; S.sel = 1; saveState(); hideCard(); show("home"); startHome(); } }, { t: "cancel", fn: hideCard }] });
   });
 
-  /* ---------------- play ---------------- */
-  function banner() {
-    const el = $("#msBanner");
-    el.innerHTML = "Reach the end &nbsp;·&nbsp; avoid the obstacles<br>" + (TOUCH ? "<b>jump</b> tap the right side &nbsp;·&nbsp; <b>slide</b> hold the left side"
-      : "<b>jump</b> space · ↑ · w · click &nbsp;&nbsp; <b>slide</b> ↓ · s · right-click");
-    el.classList.remove("show"); void el.offsetWidth; el.classList.add("show");
+  /* ---------------- objective box ----------------
+     The goal and the controls, at the start of a level (S.objective). On its own it sits near the top and goes
+     away by itself, later while the mouse is over it or the keyboard is on its checkbox. On a level that brings
+     in a new hazard it docks in the overlay right above the hazard card and leaves with it. */
+  const ob = $("#msBanner"), obChk = $("#obHide");
+  let obT = 0, obMouse = false;
+  $("#obJump").textContent = TOUCH ? "tap the right side" : "space · ↑ · w · click";
+  $("#obRoll").textContent = TOUCH ? "hold the left side" : "↓ · s · right-click";
+  function kbFocus(el) { try { return el.matches(":focus-visible"); } catch (e) { return document.activeElement === el; } }
+  function showObjective(dock) {
+    hideObjective();
+    if (!S.objective) return;
+    obChk.checked = false;
+    if (dock) { overlay.classList.add("stack"); overlay.insertBefore(ob, cardEl); ob.classList.add("dock"); }
+    void ob.offsetWidth; ob.classList.add("show");
+    if (!dock) obT = setTimeout(fadeObjective, 6000);
   }
+  function fadeObjective() { if (obMouse || kbFocus(obChk)) obT = setTimeout(fadeObjective, 400); else hideObjective(); }
+  function hideObjective() {
+    clearTimeout(obT);
+    if (ob.contains(document.activeElement)) document.activeElement.blur();
+    ob.classList.remove("show"); undockObjective();
+  }
+  /* back to its own place, at once (no fade from the docked spot to the top of the screen) */
+  function undockObjective() {
+    if (!ob.classList.contains("dock")) return;
+    ob.style.transition = "none"; ob.classList.remove("dock", "show"); overlay.classList.remove("stack");
+    document.body.insertBefore(ob, overlay); void ob.offsetWidth; ob.style.transition = "";
+  }
+  /* taps and clicks on the box are never jump or roll input */
+  ob.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+  ob.addEventListener("pointerenter", function (e) { if (e.pointerType === "mouse") obMouse = true; });
+  ob.addEventListener("pointerleave", function () { obMouse = false; });
+  obChk.addEventListener("change", function () {
+    S.objective = !obChk.checked; saveState(); paintSettings();
+    if (!kbFocus(obChk)) obChk.blur();   /* after a click the keys go back to the game */
+  });
+
+  /* ---------------- new hazard cards ----------------
+     Before the first run of the level that brings in a hazard (HAZ[].lv) the game waits, frozen, behind a card
+     that names the hazard, says what to do and shows it in a looping preview. The preview is a tiny chart
+     (terrain/overlay, 8 cells a bar, README: How it works) played by the real simulation with a scripted input
+     and drawn by a second renderer (RENDER.create) in the level's own theme, so it looks exactly like the game.
+     in: inputs, used in turn on each loop, as [from beat, to beat, 1 jump | 2 roll]; to: the beat where the loop
+     starts over; still: the beat shown, as one frame, with prefers-reduced-motion. */
+  const INTRO = {
+    bl: { body: "A bouncy pad. Run onto it and it throws you up really high. Use it to get over big gaps and tall steps.",
+      c: "...H............/..B.............", in: [[]], to: 3.6, still: 1.6 },
+    ha: { body: "A floating ring. Jump through it, then press jump again while you're in the air to jump a second time.",
+      c: "...~~~........../....O...........", in: [[[1.25, 1.4, 1], [2.05, 2.2, 1]]], to: 4, still: 1.6 },
+    D: { body: "Inside the purple area you're light as a bubble. Your jumps go higher and you fall slower.",
+      c: "....._........../.D..........d...", in: [[[2.4, 2.55, 1]]], to: 4.6, still: 3 },
+    F: { body: "Tiles that disappear soon after you step on them. Land on one and jump off right away.",
+      c: "..~~~~~........./...F.F..........", in: [[[0.75, 0.9, 1], [1.8, 1.95, 1], [2.85, 3, 1]]], to: 4.6, still: 2 },
+    ke: { body: "A spinning crystal opens the orange wall after it. Touch the crystal, then run through the wall. If you miss the crystal, the wall stays closed.",
+      c: "................/...K..G.........", in: [[]], to: 4, still: 1.5 },
+    A: { body: "Inside the blue area you're heavy. Your jumps are small and quick, so press fast.",
+      c: "..^^^^........../.A........a.....", in: [[[1, 1.1, 1], [1.5, 1.6, 1], [2, 2.1, 1], [2.5, 2.6, 1]]], to: 4, still: 1.75 },
+    L: { body: "A bar you can hang from. Jump and keep holding jump to grab it. Let go to drop down.",
+      c: "...~~~~~......../...L.....l......", in: [[[1.2, 4.1, 1]]], to: 5.2, still: 2.8 },
+    ri: { body: "A portal that shoots you straight up. Tap roll just before it, so you stand up inside it. It takes you to places too high to jump to.",
+      c: "....H.........../....R...........", in: [[[1.9, 1.95, 2]]], to: 4.2, still: 2.3 },
+    co: { body: "Grab it while you're in the air and you'll glide straight across. Great for long gaps.",
+      c: "...~~~........../...C............", in: [[[1.25, 1.4, 1]]], to: 4.4, still: 2.3 },
+    T: { body: "Warm air pushes you up by itself. Jump doesn't work here. Hold roll to go down.",
+      c: "................/.T.m...n...t....", in: [[[3, 4.2, 2]]], to: 5.4, still: 2 },
+    ey: { body: "The eye watches you, then shoots where you were. If you were on the ground, jump. If you were in the air, stay on the ground.",
+      c: "................/...E...e........", in: [[[3.5, 3.65, 1]], [[1.5, 1.65, 1]]], to: 5, still: 3.9 },
+    X: { body: "You can run on top of it. To break through, roll as you land on it.",
+      c: "..Y............./...XXXX.........", in: [[[2, 2.15, 1], [2.5, 2.95, 2]]], to: 4.6, still: 2.65 },
+    S: { body: "A spring. Roll onto it and hold roll to squeeze it, then let go to fly up. Hold longer to go higher.",
+      c: "....H.........../..SS............", in: [[[0.9, 1.9, 2]]], to: 4, still: 1.75 },
+    1: { body: "Some tiles are solid and some are see-through. Every time you jump, they swap. Count your jumps!",
+      c: "...~~~~~~~....../....2.1.2.......", in: [[[1.3, 1.45, 1], [2.35, 2.5, 1], [3.35, 3.5, 1], [4.4, 4.55, 1]]], to: 5.8, still: 1.8 },
+    Z: { body: "Gravity flips and you run on the ceiling. Jump still works the same way. You flip back when you leave the area.",
+      c: ".....^........../..Z.....z.......", in: [[[2.65, 2.8, 1]]], to: 5.5, still: 2.9 }
+  };
+  const PV_FROM = -0.6, PV_BPM = 132;   /* the loop starts a little before beat 0; previews play at the level's tempo, at most PV_BPM */
+  let pvR = null;
+  function newHazard(n) { for (const h of HAZ) if (h.lv === n) return h; return null; }
+  function hazardCard(h) {
+    showCard({ cls: "wide", pv: "The " + h.name + " in the game", eyebrow: "new hazard", title: h.name, accent: h.col, body: INTRO[h.k].body,
+      acts: [{ t: "understood", solid: true, fn: startRun }],
+      open: function (el) { return preview($("canvas", el), INTRO[h.k], G.def); } });
+    showObjective(true);
+  }
+  /* the looping preview; returns the function that stops it. Its own sim state, clock and renderer: nothing here
+     touches the frozen game. */
+  function preview(cvs, D, def) {
+    const R = pvR || (pvR = RENDER.create({ w: 220, h: 140, dpr: 2, sc: 14, px: .3, gy: .84, top: 4 }));
+    const L = D.L || (D.L = SIM.compile({ n: 0, phr: { a: D.c }, form: "a", fix: [] }));
+    const spb = 60 / Math.min(PV_BPM, def.mu[0]), o = { squash: 0 };
+    let st = null, inp = null, loops = 0, t0 = 0, last = 0, restY = 0, snap = true, raf = 0;
+    R.resize(cvs);
+    function reset(t) { st = SIM.newState(); st.ev = []; inp = D.in[loops++ % D.in.length]; R.setLevel(L, def.th, def.n * 101); t0 = t; o.squash = 0; restY = 0; snap = true; }
+    function draw(beat, t, dt) {
+      const target = Math.floor(beat * TPB);
+      while (st.tick < target && !st.dead && !st.won) {
+        const b = st.tick / TPB; let v = 0;
+        for (const q of inp) if (b >= q[0] && b < q[1]) v |= q[2];
+        SIM.step(L, st, v & 1, v & 2, 0); onEvents(st, st.tick * DX, R, o);
+      }
+      if (st.gr) restY = st.flip && st.zz ? st.zz.base : st.y; else if (st.flip && st.zz) restY = st.zz.base;
+      o.squash = Math.max(0, o.squash - dt * 5);
+      const x = Math.max(beat * 4, -40), fr = Math.max(0, Math.min(1.5, beat * TPB - st.tick));
+      const y = st.gr || st.hang >= 0 || st.won ? st.y : st.y + st.vy * SIM.DT * fr;
+      let thermal = false; for (const z of L.zones) if (z.k === "T" && x >= z.x0 && x < z.x1) thermal = true;
+      const bf = beat - Math.floor(beat), pulse = beat < 0 ? 0 : Math.pow(Math.max(0, 1 - bf * 2.3), 2);
+      R.frame({ s: st, x: x, y: y, beat: beat, time: t, pulse: pulse, dead: false, squash: o.squash, restY: restY, snap: snap, thermal: thermal,
+        demo: true, noShake: true }, dt);
+      snap = false;
+    }
+    if (RM) { reset(0); draw(D.still, 0, 0); return null; }
+    function tick(ts) {
+      raf = requestAnimationFrame(tick);
+      const t = ts / 1000, dt = last ? Math.min(0.05, Math.max(0.001, t - last)) : 0; last = t;
+      let beat = PV_FROM + (t - t0) / spb;
+      if (!st || beat >= D.to) { reset(t); beat = PV_FROM; }
+      draw(beat, t, dt);
+    }
+    raf = requestAnimationFrame(tick);
+    return function () { cancelAnimationFrame(raf); };
+  }
+
+  /* ---------------- play ---------------- */
   function paintHud() {
     $("#hudLevel").innerHTML = "level <b>" + pad2(G.n) + "</b> &nbsp;·&nbsp; " + G.def.name;
     $("#hudTry").innerHTML = "try <b>" + G.tryN + "</b>";
@@ -217,40 +356,56 @@
   function beginRun(first) {
     const r = rec(G.n);
     if (!r.d) { r.t++; saveState(); G.tryN = r.t; } else { G.session++; G.tryN = G.session; }
-    G.st = SIM.newState(); G.st.ev = []; G.mode = "play"; G.paused = false; G.squash = 0; G.restY = 0; G.snap = true; G.beat0 = 0;
+    G.st = SIM.newState(); G.st.ev = []; G.paused = false; G.squash = 0; G.restY = 0; G.snap = true; G.beat0 = 0;
     keys.qj = keys.qs = false;
     RENDER.setLevel(G.L, G.def.th, G.n * 101);
-    if (G.song) MUSIC.start(G.song);
-    clock.start(); paintHud();
-    if (first) banner();
+    paintHud(); hudFill.style.transform = "scaleX(0)";
+    const h = first ? newHazard(G.n) : null;
+    if (h) {
+      /* frozen at the start, where the run's first frame would be, with no music and no clock, until "understood" */
+      G.mode = "intro"; G.beat = -0.1 / G.spb; MUSIC.stop(0.1);
+      hazardCard(h);
+    } else {
+      G.mode = "play"; go();
+      if (first) showObjective(false);
+    }
   }
-  function onEvents(st, x) {
+  function go() { if (G.song) MUSIC.start(G.song); clock.start(); }
+  /* "understood" on a new hazard card: the run starts from beat 0, exactly as an ordinary first run does */
+  function startRun() {
+    if (G.mode !== "intro") return;
+    hideCard(true); keys.qj = keys.qs = false;
+    G.mode = "play"; G.paused = false; go();
+  }
+  /* sim events -> effects. R: the renderer (the game's, or a hazard preview's), o: what holds the squash */
+  function onEvents(st, x, R, o) {
     const ev = st.ev; if (!ev.length) return;
-    const fl = st.flip, fb = fl && st.zz ? st.zz.base : 0, o = { flip: fl, fb: fb }, C = RENDER.COL, y = st.y;
-    const puff = function (n, sp) { RENDER.emit(x, y + .05, n, { sp: sp, life: .4, sz: .08, ang: Math.PI * .5, spread: 2.6, g: 5, flip: fl, fb: fb }); };
-    const pop = function (col, n) { RENDER.ring(x, y + .9, col, 1.8, fl, fb); RENDER.emit(x, y + .9, n || 10, { sp: 5, life: .5, sz: .1, col: col, g: 4, flip: fl, fb: fb }); };
+    R = R || RENDER; o = o || G;
+    const main = R === RENDER, fl = st.flip, fb = fl && st.zz ? st.zz.base : 0, C = R.COL, y = st.y;
+    const puff = function (n, sp) { R.emit(x, y + .05, n, { sp: sp, life: .4, sz: .08, ang: Math.PI * .5, spread: 2.6, g: 5, flip: fl, fb: fb }); };
+    const pop = function (col, n) { R.ring(x, y + .9, col, 1.8, fl, fb); R.emit(x, y + .9, n || 10, { sp: 5, life: .5, sz: .1, col: col, g: 4, flip: fl, fb: fb }); };
     for (const e of ev) {
-      RENDER.cue(e);   /* view-only: the runner's animation keys its transitions off these */
+      R.cue(e);   /* view-only: the runner's animation keys its transitions off these */
       switch (e) {
         case "jump": puff(4, 2); break;
         case "air": pop(C.ha, 8); break;
-        case "land": G.squash = .55; puff(5, 2.4); break;
-        case "land2": G.squash = 1; puff(12, 4); if (S.shake) RENDER.shake(.4); break;
-        case "bounce": G.squash = .8; pop(C.bl, 12); if (S.shake) RENDER.shake(.3); break;
+        case "land": o.squash = .55; puff(5, 2.4); break;
+        case "land2": o.squash = 1; puff(12, 4); if (S.shake) R.shake(.4); break;
+        case "bounce": o.squash = .8; pop(C.bl, 12); if (S.shake) R.shake(.3); break;
         case "halo": pop(C.ha, 10); break;
         case "key": pop(C.ke, 12); break;
-        case "gate": RENDER.emit(x + 3, y + 2.5, 14, { sp: 4, life: .6, sz: .1, col: C.ke, r: 4, g: 2, flip: fl, fb: fb }); break;
-        case "rift": pop(C.ri, 14); if (S.shake) RENDER.shake(.2); break;
+        case "gate": R.emit(x + 3, y + 2.5, 14, { sp: 4, life: .6, sz: .1, col: C.ke, r: 4, g: 2, flip: fl, fb: fb }); break;
+        case "rift": pop(C.ri, 14); if (S.shake) R.shake(.2); break;
         case "comet": pop(C.co, 10); break;
-        case "eye": RENDER.ring(x, y + 4.9, C.ey, 1.4, fl, fb); break;
-        case "coil": pop(C.S, 12); if (S.shake) RENDER.shake(.3); break;
-        case "break": RENDER.emit(x, y, 26, { sp: 6, life: .8, sz: .16, k: 1, col: C.X, r: 2.4, flip: fl, fb: fb }); if (S.shake) RENDER.shake(.5); break;
+        case "eye": R.ring(x, y + 4.9, C.ey, 1.4, fl, fb); break;
+        case "coil": pop(C.S, 12); if (S.shake) R.shake(.3); break;
+        case "break": R.emit(x, y, 26, { sp: 6, life: .8, sz: .16, k: 1, col: C.X, r: 2.4, flip: fl, fb: fb }); if (S.shake) R.shake(.5); break;
         case "flip": pop(C.Z, 12); break;
-        case "grab": RENDER.ring(x, y + 1.75, C.L, 1, fl, fb); break;
+        case "grab": R.ring(x, y + 1.75, C.L, 1, fl, fb); break;
         case "slide": puff(3, 1.6); break;
         case "die":
-          if (G.mode === "play") {
-            RENDER.burst(x, y, fl, fb); if (!S.shake) RENDER.shake(0);
+          if (main && G.mode === "play") {
+            R.burst(x, y, fl, fb); if (!S.shake) R.shake(0);
             G.mode = "dead"; G.deadAt = now(); MUSIC.stop(0.14);
           }
           break;
@@ -310,6 +465,7 @@
   window.addEventListener("keydown", function (e) {
     const c = e.code;
     if (c === "Escape") { if (G.mode === "play" && !G.paused) pauseGame(); else if (G.paused) resumeGame(); return; }
+    if (c === "Space" && e.target === obChk) return;   /* the keyboard is on "Don't show again": Space ticks it */
     if (G.cardUp) { if (c === "Enter" && cardActs[0]) { e.preventDefault(); cardActs[0].fn(); } return; }
     if (G.mode === "play") {
       if (c === "Space" || c === "ArrowUp" || c === "KeyW") { if (!e.repeat) { keys.j = true; keys.qj = true; } e.preventDefault(); }
@@ -344,10 +500,11 @@
     requestAnimationFrame(loop);
     const t = ts / 1000, dt = Math.min(0.05, Math.max(0.001, t - last)); last = t;
     if (G.mode === "splash" || !G.st || !G.L) return;
+    if (G.mode === "intro" && !G.snap) return;   /* frozen behind a new hazard card: drawn once, and again after a resize */
     const st = G.st, L = G.L;
     if (!G.paused) {
       MUSIC.schedule();
-      if (G.mode !== "dead" && G.mode !== "launch") G.beat = clock.beat(G.spb) - G.beat0;
+      if (G.mode !== "dead" && G.mode !== "launch" && G.mode !== "intro") G.beat = clock.beat(G.spb) - G.beat0;
       if (G.mode === "home" || G.mode === "launch") {
         if (G.beat >= DEMO_BEATS) { G.beat0 += DEMO_BEATS; G.beat -= DEMO_BEATS; G.st = SIM.newState(); G.st.ev = []; RENDER.setLevel(demoL, homeTheme().th, homeTheme().n * 101); G.snap = true; return; }
         const target = Math.floor(G.beat * TPB); let n = 0;
@@ -374,7 +531,7 @@
     let thermal = false; for (const z of L.zones) if (z.k === "T" && x >= z.x0 && x < z.x1) thermal = true;
     const bf = G.beat - Math.floor(G.beat), pulse = G.beat < 0 || dead ? 0 : Math.pow(Math.max(0, 1 - bf * 2.3), 2);
     RENDER.frame({ s: st, x: x, y: y, beat: G.beat, time: t, pulse: pulse, dead: dead, squash: G.squash, restY: G.restY, snap: G.snap, thermal: thermal,
-      demo: G.mode === "home" || G.mode === "launch", noShake: !S.shake }, G.paused ? 0 : dt);
+      demo: G.mode === "home" || G.mode === "launch", noShake: !S.shake }, G.paused || G.mode === "intro" ? 0 : dt);
     G.snap = false;
     if (G.mode === "play" || dead || G.mode === "won") hudFill.style.transform = "scaleX(" + Math.max(0, Math.min(1, x / L.endX)).toFixed(4) + ")";
     /* drop resolution once if the device cannot hold 60 fps */

@@ -66,6 +66,10 @@
         <div class="set-ctl"><button class="sw" id="shakeSw" aria-pressed="true" aria-label="Screen shake"></button></div>
       </div>
       <div class="set-row">
+        <div class="lbl"><b>Objective tips</b><span>Show the goal and controls at the start of a level.</span></div>
+        <div class="set-ctl"><button class="sw" id="objSw" aria-pressed="true" aria-label="Objective tips"></button></div>
+      </div>
+      <div class="set-row">
         <div class="lbl"><b>Reset progress</b><span>Clears every unlock, star and try count.</span></div>
         <div class="set-ctl"><button class="chip danger" id="resetBtn">reset</button></div>
       </div>
@@ -96,7 +100,11 @@
   </div>
 </div>
 
-<div id="msBanner"></div>
+<div id="msBanner">
+  <div class="ob-title">Run to the end</div>
+  <div class="ob-keys"><span class="ob-key"><b>jump</b> <span id="obJump"></span></span><span class="ob-key"><b>roll</b> <span id="obRoll"></span></span></div>
+  <label class="ob-hide"><input type="checkbox" id="obHide"><i class="ob-box" aria-hidden="true"></i>Don't show again</label>
+</div>
 
 <div id="overlay"><div class="card" id="card"></div></div>
 
