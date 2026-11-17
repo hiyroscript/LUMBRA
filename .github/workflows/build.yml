@@ -13,11 +13,12 @@ name: Build release
 on:
   push:
     branches: [main]
-    # Skip pushes that only touch the brief (max) or Markdown: none of it
-    # goes into the release, so it would only rebuild the same game.
+    # Skip pushes that only touch the brief (max), Markdown or docs/: none
+    # of it goes into the release, so it would only rebuild the same game.
     paths-ignore:
       - 'max'
       - '**.md'
+      - 'docs/**'
   workflow_dispatch:
 
 permissions:
