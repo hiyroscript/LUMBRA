@@ -41,6 +41,13 @@ jobs:
         with:
           node-version: 20
 
+      # Gate 0: every level is one minute long, solvable with a fairness
+      # margin, reuses the hazards it should, and sits on the difficulty
+      # curve (README, Difficulty). Several minutes: it solves each level
+      # several times.
+      - name: Check levels (length, fairness, hazard reuse, difficulty curve)
+        run: node tools/check-levels.js
+
       # Gate 1: copy the game, strip js/dev.js, js/dev-config.js and every
       # <!-- dev-only --> line, stamp the version, then fail on any leak.
       - name: Build release (no developer code)
