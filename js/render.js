@@ -460,53 +460,359 @@ const RENDER = (function () {
   }
 
   /* ---------------- the stickman ---------------- */
+  /* Character animation, view-only: it reads SIM state, the beat and the frame time, and never writes SIM state, so
+     replays and the home demo stay bit-identical. Units are world units (the runner is 1.7 tall, PH), y up, x forward,
+     origin on the ground under the runner; times are seconds unless they say beats. All the tunables are in ANIM. */
+  const ANIM = {
+    /* A state change leaves an offset between the drawn pose and the new target, which decays at a rate (1/s; settled
+       after ~3/rate s). Steady states (the run, the spin) are drawn exactly, with no lag behind the beat. */
+    blend: { run: 30, unroll: 24, unrollTurn: 1.5, ball: 34, air: 22, hang: 28, glide: 16, thermal: 12 },
+    hands: { spring: 1.5, damp: .55 },    /* hand offsets settle as a spring instead (w = rate * spring), so arms overshoot a little */
+    head: { kick: .1, hz: 5, damp: .5, max: .06 },  /* head lag per unit/beat of vertical speed change (take-off, landing) */
+    run: {
+      stance: .21,                        /* share of the cycle a foot is planted. One cycle = 1 beat = 2 steps, so feet strike on beats and half-beats */
+      contact: .3, foot: .05, heel: .1,   /* foot strike ahead of the hip, ankle height, heel lift at toe-off */
+      hip: .84, bob: .035,                /* hip height and half its bob (low at mid-stance, high in flight) */
+      lean: .26, pitch: .05,              /* torso lean (rad, ~15 deg) and its pitch swing per step (~3 deg) */
+      torso: .55, neck: .23,
+      armFwd: .9, armBack: -1.25,         /* upper arm swing from straight down (rad), front and back */
+      flexFwd: 1.9, flexBack: .75,        /* elbow bend (rad): fist up at the chin in front, arm opening behind the hip */
+      /* swing leg after toe-off, as cycle phase, thigh angle from straight down (deg, + forward) and knee bend (deg):
+         heel kicks up to the seat, knee drives up to near horizontal, the shin reaches out, then paws back into the
+         strike. Toe-off and strike angles are solved from the planted foot, so swing and stance join exactly. */
+      swing: [.3, -30, 75, .4, -14, 125, .5, 15, 135, .62, 50, 118, .74, 72, 95, .85, 65, 50, .93, 50, 22],
+      dust: [1.6, .3, .05]                /* push-off dust: speed, life, size */
+    },
+    land: { t: .14, drop: .2, lean: .18, heavyT: .22, heavyDrop: .3 },   /* land / land2: how long, how deep the hip drops, extra lean */
+    jump: { crouch: .6, bounce: .75, ext: .16, coilStretch: .08 },        /* take-off: how far into the crouch, how long the extension lasts */
+    flip: { t: .36 },                     /* air jump: one front flip, tucked */
+    /* slide / dive ball: radius (fits the 0.8 slide hitbox), spin beyond rolling, extra spin at full Coil charge, most
+       spin per frame (keeps the quills from strobing backwards), ceiling for the pose while it curls, spark intervals (s) */
+    ball: { r: .39, flair: 1.35, coil: 2.6, step: .9, ceil: .9, spark: .05, coilSpark: .022 },
+    /* rail hang: body pendulum (Hz, damping, swing-back kick on the grab, rest angle), legs on their own spring, tuck rate */
+    hang: { hz: 1.1, damp: .18, kick: 2.4, trail: -.06, legHz: 2.2, legTrail: -.12, tuck: 30 },
+    glide: { rot: -1.28, bob: .03, flutter: .06 },
+    thermal: { p1: 1.7, p2: 2.3, p3: 2.9 },
+    hit: { t: .03 }                       /* hit pose held for a frame or two as the death burst goes off */
+  };
+
+  /* pose channels: joint targets (hip, neck, head, feet, hands), rotation about mid-torso, knee/elbow bend side,
+     ball morph (0 runner .. 1 ball) and vertical stretch */
+  const NP = 19, HIP = 0, NECK = 2, HEAD = 4, F1 = 6, F2 = 8, H1 = 10, H2 = 12, ROT = 14, KD = 15, ED = 16, BALL = 17, STR = 18;
+  function pose(a, ball) { const p = new Float64Array(NP); p.set(a); p[KD] = 1; p[ED] = -1; p[BALL] = ball || 0; return p; }
+  /*                  hip         neck          head          foot 1        foot 2        hand 1        hand 2         rot */
+  const POSE = {
+    rise:    pose([0, .92,     .08, 1.46,    .12, 1.69,    .18, .44,     -.32, .12,    .46, 1.82,    -.44, 1.58,    -.05]),
+    apex:    pose([0, .94,     .12, 1.47,    .2, 1.69,     .32, .4,      -.3, .3,      .52, 1.45,    -.46, 1.5,     -.1]),
+    fall:    pose([0, .92,     .07, 1.47,    .11, 1.69,    .22, .08,     -.12, .24,    .52, 1.6,     -.44, 1.7,     .06]),
+    crouch:  pose([-.02, .58,  .22, 1.06,    .34, 1.26,    .2, .05,      -.22, .05,    -.34, .72,    -.4, .78,      0]),
+    ext:     pose([0, .96,     .05, 1.52,    .07, 1.75,    -.06, .09,    -.2, .12,     .54, 1.86,    -.34, 1.94,    0]),
+    tuck:    pose([-.04, .98,  .14, 1.34,    .3, 1.45,     .26, .86,     .2, .82,      .34, .96,     .28, .92,      0]),
+    ball:    pose([-.1, .3,    .1, .48,      .13, .5,      .17, .2,      .11, .16,     .2, .3,       .15, .26,      0], 1),
+    /* glide is laid out as seen (body level, fists forward under the head, legs trailing) and turned into the
+       upright frame below, so the runner rotates into it */
+    glide:   pose([-.3, 1,     .24, 1.16,    .43, 1.29,    -1.15, .86,   -1.08, 1.02,  .86, 1.16,    .74, .98,      ANIM.glide.rot]),
+    thermal: pose([0, .92,     .05, 1.47,    .08, 1.7,     -.14, .12,    .14, .2,      .58, 1.4,     -.52, 1.38,    0])
+  };
+  POSE.ext[STR] = .1;
+  (function (p) {
+    const cx = (p[HIP] + p[NECK]) / 2, cy = (p[HIP + 1] + p[NECK + 1]) / 2, c = Math.cos(-p[ROT]), s = Math.sin(-p[ROT]);
+    for (let i = 0; i < 14; i += 2) { const x = p[i] - cx, y = p[i + 1] - cy; p[i] = cx + x * c - y * s; p[i + 1] = cy + x * s + y * c; }
+  })(POSE.glide);
+  /* hand channels settle as springs; every other channel decays exponentially */
+  const SPR = new Uint8Array(NP); SPR[H1] = SPR[H1 + 1] = SPR[H2] = SPR[H2 + 1] = 1;
+  /* hip height through the run cycle: lowest at each mid-stance, highest in each flight (two bumps per cycle) */
+  const RUN_HX = -.02;
+  function runHipY(u) { const R = ANIM.run; return R.hip - R.bob * Math.cos(4 * Math.PI * (u - R.stance / 2)); }
+  /* run swing keys (phase, thigh, knee in rad) with Catmull-Rom tangents, built once */
+  const SW = (function () {
+    const R = ANIM.run, D = Math.PI / 180;
+    /* thigh angle and knee bend that put the foot at (fx, fy) at phase v (two-bone IK, knee forward) */
+    const solve = function (v, fx, fy) {
+      const dx = fx - RUN_HX, dy = fy - runHipY(v), d = Math.min(.878, Math.hypot(dx, dy)), k = Math.acos(d / .88), a = Math.atan2(dy, dx) + k;
+      return [Math.atan2(Math.cos(a), -Math.sin(a)), 2 * k];
+    };
+    const off = solve(R.stance, R.contact - SIM.UPB * R.stance, R.foot + R.heel), on = solve(1, R.contact, R.foot);
+    const k = [R.stance, off[0], off[1]];
+    for (let i = 0; i < R.swing.length; i += 3) k.push(R.swing[i], R.swing[i + 1] * D, R.swing[i + 2] * D);
+    k.push(1, on[0], on[1]);
+    const n = k.length / 3, t = new Float64Array(n), a = new Float64Array(n), b = new Float64Array(n), ma = new Float64Array(n), mb = new Float64Array(n);
+    for (let i = 0; i < n; i++) { t[i] = k[i * 3]; a[i] = k[i * 3 + 1]; b[i] = k[i * 3 + 2]; }
+    for (let i = 0; i < n; i++) { const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1), d = t[i1] - t[i0]; ma[i] = (a[i1] - a[i0]) / d; mb[i] = (b[i1] - b[i0]) / d; }
+    return { n: n, t: t, a: a, b: b, ma: ma, mb: mb };
+  })();
+
+  /* persistent view state (module-level, reset on V.snap) */
+  const vP = new Float64Array(NP), vT = new Float64Array(NP), vO = new Float64Array(NP), vV = new Float64Array(NP), dP = new Float64Array(NP);
+  const K_RUN = 0, K_BALL = 1, K_AIR = 2, K_GLIDE = 3, K_THERM = 4, K_HANG = 5;
+  const vw = { key: -1, rate: 18, rotRate: 18, ac: 0, x: 0, vy: 0, spin: 0, u: 0, dust: 0, landT: -9, heavy: false, toT: -9, coilUp: false, hy: 0, hv: 0 };
+  const hg = { a: 0, v: 0, l: 0, lv: 0, tuck: 0 };   /* rail hang: body swing, leg swing, tuck */
+  const EV = { jump: -9, air: -9, slide: -9, coil: -9, land: -9, land2: -9, bounce: -9, grab: -9, die: -9 }, FRESH = {}, pend = [];
+  function cue(e) { if (EV[e] !== undefined) pend.push(e); }
+
+  const clamp01 = function (v) { return v < 0 ? 0 : v > 1 ? 1 : v; };
+  const smooth = function (v) { v = clamp01(v); return v * v * (3 - 2 * v); };
+  function wrapPi(a) { a = (a + Math.PI) % TAU; if (a < 0) a += TAU; return a - Math.PI; }
+  function copyPose(d, a) { for (let i = 0; i < NP; i++) d[i] = a[i]; }
+  function mixPose(d, a, b, t) { for (let i = 0; i < NP; i++) d[i] = a[i] + (b[i] - a[i]) * t; }
+  /* point (x, y) rotated by (c, s) about (ox, oy), into channel i */
+  function rpt(p, i, ox, oy, x, y, c, s) { p[i] = ox + x * c - y * s; p[i + 1] = oy + x * s + y * c; }
+
+  /* run: one beat per cycle, foot 1 strikes on the beat, foot 2 on the half-beat. The planted foot moves back at exactly
+     the scroll speed (UPB units per beat), so it never skates */
+  function runFoot(p, i, v, hy) {
+    const R = ANIM.run;
+    if (v < R.stance) {
+      const q = (v - .5 * R.stance) / (.5 * R.stance);
+      p[i] = R.contact - SIM.UPB * v; p[i + 1] = R.foot + (q > 0 ? R.heel * q * q : 0);
+      return;
+    }
+    /* swing: interpolate the joint angles, then forward kinematics from the hip */
+    let j = 0; while (j < SW.n - 2 && v > SW.t[j + 1]) j++;
+    const h = SW.t[j + 1] - SW.t[j], s = (v - SW.t[j]) / h, s2 = s * s, s3 = s2 * s;
+    const a = 2 * s3 - 3 * s2 + 1, b = (s3 - 2 * s2 + s) * h, c = 3 * s2 - 2 * s3, d = (s3 - s2) * h;
+    const th = a * SW.a[j] + b * SW.ma[j] + c * SW.a[j + 1] + d * SW.ma[j + 1], sh = th - (a * SW.b[j] + b * SW.mb[j] + c * SW.b[j + 1] + d * SW.mb[j + 1]);
+    p[i] = RUN_HX + .44 * (Math.sin(th) + Math.sin(sh)); p[i + 1] = Math.max(R.foot, hy - .44 * (Math.cos(th) + Math.cos(sh)));
+  }
+  /* arm i swings forward while leg i is back (opposite to the legs); forward kinematics from the shoulder */
+  function runArm(p, i, v, lean) {
+    const R = ANIM.run, c = Math.cos(TAU * (v - R.stance - .03)), sx = p[NECK] + (p[HIP] - p[NECK]) * .1, sy = p[NECK + 1] + (p[HIP + 1] - p[NECK + 1]) * .1;
+    const th = (R.armFwd + R.armBack) / 2 + (R.armFwd - R.armBack) / 2 * c + lean * .3, fl = th + (R.flexFwd + R.flexBack) / 2 + (R.flexFwd - R.flexBack) / 2 * c;
+    p[i] = sx + .3 * Math.sin(th) + .3 * Math.sin(fl); p[i + 1] = sy - .3 * Math.cos(th) - .3 * Math.cos(fl);
+  }
+  /* w = landing weight (0 none .. 1 impact), heavy for land2 */
+  function poseRun(p, beat, w, heavy) {
+    const R = ANIM.run, Ld = ANIM.land, u = beat - Math.floor(beat), v2 = u < .5 ? u + .5 : u - .5, ph = 4 * Math.PI * (u - R.stance / 2);
+    const hy = runHipY(u) - w * (heavy ? Ld.heavyDrop : Ld.drop), lean = R.lean + R.pitch * Math.sin(ph) + w * Ld.lean;
+    p[HIP] = RUN_HX; p[HIP + 1] = hy;
+    p[NECK] = RUN_HX + R.torso * Math.sin(lean); p[NECK + 1] = hy + R.torso * Math.cos(lean);
+    p[HEAD] = p[NECK] + R.neck * Math.sin(lean * .45); p[HEAD + 1] = p[NECK + 1] + R.neck * Math.cos(lean * .45);
+    runFoot(p, F1, u, hy); runFoot(p, F2, v2, hy);
+    runArm(p, H1, u, lean); runArm(p, H2, v2, lean);
+    if (w > 0) {
+      /* landing: both feet pressed to the ground, arms swung down and forward */
+      const sx = p[NECK] + (p[HIP] - p[NECK]) * .1, sy = p[NECK + 1] + (p[HIP + 1] - p[NECK + 1]) * .1;
+      p[F1 + 1] += (R.foot - p[F1 + 1]) * w; p[F2 + 1] += (R.foot - p[F2 + 1]) * w;
+      p[H1] += (sx + .34 - p[H1]) * w; p[H1 + 1] += (sy - .36 - p[H1 + 1]) * w;
+      p[H2] += (sx + .16 - p[H2]) * w; p[H2 + 1] += (sy - .42 - p[H2 + 1]) * w;
+    }
+    p[ROT] = 0; p[KD] = 1; p[ED] = -1; p[BALL] = 0; p[STR] = 0;
+  }
+  /* air: rise / apex / fall blended continuously by vertical speed, plus the take-off extension and the air-jump flip */
+  function poseAir(p, s) {
+    const up = Math.max(-1, Math.min(1, s.vy / 10));
+    if (up >= 0) mixPose(p, POSE.apex, POSE.rise, smooth(up)); else mixPose(p, POSE.apex, POSE.fall, smooth(-up));
+    p[STR] = Math.min(.12, Math.abs(s.vy) * .007);
+    const tj = vw.ac - vw.toT, J = ANIM.jump;
+    if (tj < J.ext) { const w = (1 - tj / J.ext) * (1 - tj / J.ext); mixPose(p, p, POSE.ext, w); if (vw.coilUp) p[STR] += J.coilStretch * w; }
+    const tf = (vw.ac - EV.air) / ANIM.flip.t;
+    if (tf < 1) { const r = p[ROT]; mixPose(p, p, POSE.tuck, Math.sin(Math.PI * tf)); p[ROT] = r - TAU * smooth(tf); }
+  }
+  /* rail hang: a damped pendulum about the hands (swings back on the grab, then settles), legs trailing on their own
+     spring, tuck eased in and out */
+  function poseHang(p) {
+    const A = ANIM.hang, py = 1.78, c = Math.cos(hg.a), sn = Math.sin(hg.a), t = hg.tuck;
+    rpt(p, NECK, 0, py, .05, -.42, c, sn); rpt(p, HEAD, 0, py, .17, -.29, c, sn); rpt(p, HIP, 0, py, -.02 * t, -.95 + .17 * t, c, sn);
+    const c2 = Math.cos(hg.l), s2 = Math.sin(hg.l);
+    rpt(p, F1, p[HIP], p[HIP + 1], -.1 + .4 * t, -.82 + .8 * t, c2, s2);
+    rpt(p, F2, p[HIP], p[HIP + 1], .16 + .06 * t, -.72 + .78 * t, c2, s2);
+    p[H1] = -.06; p[H1 + 1] = py; p[H2] = .08; p[H2 + 1] = py;
+    p[ROT] = 0; p[KD] = 1; p[ED] = 1; p[BALL] = 0; p[STR] = 0;   /* elbows bent back, clear of the head */
+  }
+  function poseGlide(p) {
+    copyPose(p, POSE.glide);
+    if (RM) return;
+    /* bob straight up and down in the world (the pose is drawn rotated), legs fluttering behind */
+    const G = ANIM.glide, b = G.bob * Math.sin(vw.ac * 4.2), f = G.flutter * Math.sin(vw.ac * 15), bx = b * Math.sin(G.rot), by = b * Math.cos(G.rot);
+    for (let i = 0; i < 14; i += 2) { p[i] += bx; p[i + 1] += by; }
+    p[F1] += f; p[F2] -= f;
+  }
+  function poseThermal(p, s) {
+    copyPose(p, POSE.thermal);
+    const sink = Math.max(0, -s.vy / 7);
+    p[H1 + 1] += .3 * Math.min(1, sink); p[H2 + 1] += .3 * Math.min(1, sink);
+    if (RM) return;
+    /* slow flowing limbs: out-of-phase sines with unrelated periods */
+    const T = ANIM.thermal, t = vw.ac, a = Math.sin(TAU * t / T.p1), b = Math.sin(TAU * t / T.p2 + 1.3), c = Math.sin(TAU * t / T.p3 + 2.1);
+    p[H1] += .05 * b; p[H1 + 1] += .12 * a; p[H2] -= .05 * a; p[H2 + 1] += .12 * b;
+    p[F1] += .07 * c; p[F1 + 1] += .04 * a; p[F2] -= .07 * b; p[F2 + 1] += .04 * c;
+    p[NECK] += .03 * c; p[HEAD] += .045 * c;
+  }
+
+  /* two-bone IK, added to the current path. dir is the bend side (1: the joint bulges forward, like a knee; -1: back,
+     like an elbow); values in between swing the joint through, so a bend side can blend */
   function ik(ax, ay, bx, by, l1, l2, dir) {
     let dx = bx - ax, dy = by - ay, d = Math.hypot(dx, dy); const m = l1 + l2 - .002;
     if (d > m) { dx *= m / d; dy *= m / d; d = m; } if (d < .02) d = .02;
     const a = Math.atan2(dy, dx), co = (l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), k = Math.acos(Math.max(-1, Math.min(1, co))) * dir;
-    return [ax, ay, ax + Math.cos(a + k) * l1, ay + Math.sin(a + k) * l1, ax + dx, ay + dy];
+    g.moveTo(ax, ay); g.lineTo(ax + Math.cos(a + k) * l1, ay + Math.sin(a + k) * l1); g.lineTo(ax + dx, ay + dy);
   }
-  function stick(V) {
-    const s = V.s, t = tNow, ph = V.beat * TAU;
-    let hip, neck, head, f1, f2, h1, h2, rot = 0, kd = 1, ed = -1;
-    if (s.hang >= 0) {
-      const sw = .1 * Math.sin(t * 5), tuck = s.h < 1;
-      hip = [sw, tuck ? 1.0 : .82]; neck = [sw * .4, 1.36]; head = [sw * .3 + .02, 1.52];
-      f1 = tuck ? [sw + .28, .98] : [sw * 1.8 - .06, .04]; f2 = tuck ? [sw + .2, 1.06] : [sw * 1.8 + .1, .1];
-      h1 = [-.07, 1.78]; h2 = [.09, 1.78]; ed = 1;
-    } else if (s.sl && s.gr) {
-      hip = [-.12, .27]; neck = [-.5, .52]; head = [-.62, .62];
-      f1 = [.56, .07]; f2 = [.3, .08]; h1 = [-.82, .1 + .03 * Math.sin(t * 30)]; h2 = [-.12, .5]; kd = 1;
-    } else if (!s.gr) {
-      const up = Math.max(-1, Math.min(1, s.vy / 9));
-      hip = [0, .9]; neck = [.12, 1.44]; head = [.18, 1.66];
-      if (s.gl > 0) { rot = -1.25; f1 = [-.1, .08]; f2 = [.08, .14]; h1 = [.4, 1.85]; h2 = [.22, 1.9]; }
-      else if (s.dive) { rot = -.75; f1 = [-.14, .12]; f2 = [.06, .2]; h1 = [.5, 1.1]; h2 = [.42, 1.3]; }
-      else if (up > 0) { f1 = [-.16, .3 + .12 * up]; f2 = [.24, .42 + .14 * up]; h1 = [.42, 1.62 + .1 * up]; h2 = [-.24, 1.56]; rot = -.08; }
-      else { f1 = [-.22, .06]; f2 = [.14, .14]; h1 = [.4, 1.7 - .2 * up]; h2 = [-.34, 1.66 - .2 * up]; rot = .06; }
-      if (V.thermal) { f1 = [-.18, .1 + .05 * Math.sin(t * 6)]; f2 = [.12, .16 + .05 * Math.cos(t * 6)]; h1 = [.55, 1.42]; h2 = [-.5, 1.4]; rot = 0; }
-    } else {
-      const b = .045 * Math.abs(Math.sin(ph));
-      hip = [-.02, .84 + b]; neck = [.16, 1.38 + b]; head = [.24, 1.6 + b];
-      const ft = function (a) { return [-.4 * Math.cos(a), .04 + .3 * Math.max(0, Math.sin(a))]; };
-      f1 = ft(ph); f2 = ft(ph + Math.PI);
-      h1 = [neck[0] + .33 * Math.cos(ph), neck[1] - .36 + .12 * Math.abs(Math.cos(ph))]; h2 = [neck[0] - .33 * Math.cos(ph), neck[1] - .36 + .12 * Math.abs(Math.cos(ph))];
+  /* the curled-up runner: solid black ball with the head's light rim, three quills that turn with the spin, a glint on
+     the leading side that doesn't, and (full motion only) a fading trail behind it. ta = direction of travel (rad), < -2 none */
+  function ballShape(cx, cy, R, m, rot, ta) {
+    if (!RM && m > .5 && ta > -2) {
+      g.strokeStyle = "#000"; g.lineCap = "round";
+      const bx = Math.cos(ta), by = Math.sin(ta);
+      for (let i = 1; i <= 3; i++) {
+        g.beginPath(); g.arc(cx - i * .11 * bx, cy - i * .11 * by, R * (1 - i * .06), ta + Math.PI * .6, ta + Math.PI * 1.4);
+        g.globalAlpha = (.34 - i * .09) * (m - .5) * 2; g.lineWidth = .075 - i * .015; g.stroke();
+      }
+      g.globalAlpha = 1;
     }
-    const sq = V.squash || 0, st = !s.gr && s.hang < 0 ? Math.min(.12, Math.abs(s.vy) * .007) : 0;
-    g.scale(1 + sq * .2 - st * .5, 1 - sq * .26 + st);
-    if (rot) { g.translate(hip[0], hip[1]); g.rotate(rot); g.translate(-hip[0], -hip[1]); }
-    const sh = [neck[0] - .01, neck[1] - .05];
-    const segs = [ik(sh[0], sh[1], h2[0], h2[1], .3, .3, ed), ik(hip[0], hip[1], f2[0], f2[1], .44, .44, kd), [hip[0], hip[1], neck[0], neck[1]],
-      ik(hip[0], hip[1], f1[0], f1[1], .44, .44, kd), ik(sh[0], sh[1], h1[0], h1[1], .3, .3, ed)];
-    /* solid black silhouette: thicker limbs, a slightly larger head, a 1px light rim on the head only */
+    g.beginPath(); g.arc(cx, cy, R, 0, TAU); g.fillStyle = "#000"; g.fill();
+    g.globalAlpha = m; g.lineWidth = 1 / sc; g.strokeStyle = FOG.rim; g.stroke();
+    g.beginPath();
+    for (let i = 0; i < 3; i++) {
+      const a = rot + i * TAU / 3;
+      g.moveTo(cx + Math.cos(a) * R * .2, cy + Math.sin(a) * R * .2);
+      g.quadraticCurveTo(cx + Math.cos(a + .45) * R * .62, cy + Math.sin(a + .45) * R * .62, cx + Math.cos(a + 1.15) * R * .8, cy + Math.sin(a + 1.15) * R * .8);
+    }
+    g.lineWidth = .05; g.lineCap = "round"; g.stroke();
+    g.beginPath(); g.arc(cx, cy, R * .78, .3, .95); g.lineWidth = .045; g.stroke();
+    g.globalAlpha = 1;
+  }
+
+  function stick(V, dt, fl, fb) {
+    const s = V.s, A = ANIM;
+    if (V.dead) {
+      /* hit pose: thrown back, arms up, for the moment before the burst takes over */
+      copyPose(dP, vP);
+      dP[ROT] += .35;
+      if (dP[BALL] < .5) {
+        dP[HEAD] = dP[NECK] - .1; dP[HEAD + 1] = dP[NECK + 1] + .2;
+        dP[H1] = dP[NECK] - .12; dP[H1 + 1] = dP[NECK + 1] + .5; dP[H2] = dP[NECK] - .4; dP[H2 + 1] = dP[NECK + 1] + .32;
+      }
+      drawPose(s, V, 0, 1, 0);
+      return;
+    }
+    const snap = V.snap || vw.key < 0;
+    if (snap) {
+      for (const k in EV) EV[k] = -9;
+      vw.landT = vw.toT = -9; vw.spin = 0; vw.hy = vw.hv = 0; vw.dust = 0; vw.u = V.beat - Math.floor(V.beat);
+      hg.a = hg.v = hg.l = hg.lv = 0; hg.tuck = s.hang >= 0 && s.h < 1 ? 1 : 0;
+    }
+    let dx = V.x - vw.x; vw.x = V.x; if (snap || dx < 0 || dx > 2) dx = 0;
+    const vyb = s.gr || s.hang >= 0 || s.gl > 0 ? 0 : s.vy, dvy = snap ? 0 : Math.max(-40, Math.min(40, vyb - vw.vy)); vw.vy = vyb;
+    /* which state */
+    let k;
+    if (s.hang >= 0) k = K_HANG;
+    else if (s.gr) k = s.sl ? K_BALL : K_RUN;
+    else if (V.thermal) k = K_THERM;
+    else if (s.gl > 0) k = K_GLIDE;
+    else if (s.dive) k = K_BALL;   /* a dive curls into the same ball as the slide, so a dive into a slide stays one ball */
+    else k = K_AIR;
+    /* events */
+    if (FRESH.land || FRESH.land2) { vw.landT = vw.ac; vw.heavy = !!FRESH.land2; }
+    if (FRESH.jump || FRESH.bounce || FRESH.coil) { vw.toT = vw.ac; vw.coilUp = !!FRESH.coil; }
+    if (FRESH.grab) { hg.a = 0; hg.v = -A.hang.kick; hg.l = 0; hg.lv = 0; }
+    /* view-only motion that the poses read: spin, rail pendulum, tuck */
+    const coilK = s.ch > 0 ? Math.min(1, s.ch) : 0;
+    if (k === K_BALL) {
+      if (vw.key !== K_BALL) vw.spin = wrapPi(vP[ROT]);
+      vw.spin -= Math.min(A.ball.step, dx / A.ball.r * A.ball.flair * (1 + A.ball.coil * coilK));
+      if (vw.spin < -Math.PI) vw.spin += TAU;
+    }
+    if (k === K_HANG) {
+      const H = A.hang, w = TAU * H.hz, w2 = TAU * H.legHz, z = RM ? 1 : H.damp, z2 = RM ? 1 : .5;
+      hg.v += (-w * w * (hg.a - H.trail) - 2 * z * w * hg.v) * dt; hg.a += hg.v * dt;
+      hg.lv += (-w2 * w2 * (hg.l - hg.a - H.legTrail) - 2 * z2 * w2 * hg.lv) * dt; hg.l += hg.lv * dt;
+      hg.tuck += ((s.h < 1 ? 1 : 0) - hg.tuck) * (1 - Math.exp(-dt * H.tuck));
+    }
+    /* target pose */
+    switch (k) {
+      case K_RUN: {
+        const T = vw.heavy ? A.land.heavyT : A.land.t, tl = vw.ac - vw.landT, w = tl < T ? (1 - tl / T) * (1 - tl / T) : 0;
+        poseRun(vT, V.beat, w, vw.heavy); break;
+      }
+      case K_BALL: copyPose(vT, POSE.ball); vT[ROT] = vw.spin; break;
+      case K_HANG: poseHang(vT); break;
+      case K_THERM: poseThermal(vT, s); break;
+      case K_GLIDE: poseGlide(vT); break;
+      default: poseAir(vT, s);
+    }
+    /* blend: on a state change the current offset to the new target is kept and decays */
+    if (snap) { vO.fill(0); vV.fill(0); }
+    else {
+      if (k !== vw.key) {
+        const B = A.blend;
+        vw.rate = k === K_RUN ? (vw.key === K_BALL ? B.unroll : B.run) : k === K_BALL ? B.ball : k === K_HANG ? B.hang : k === K_GLIDE ? B.glide : k === K_THERM ? B.thermal : vw.key === K_BALL ? B.unroll : B.air;
+        for (let i = 0; i < NP; i++) vO[i] = vP[i] - vT[i];
+        /* rotation takes the short way round, except out of the ball, which keeps rolling forward until upright. Out of
+           a full ball the limbs are hidden and the quills repeat every third of a turn, so it rolls at most a third */
+        const dr = vP[ROT] - vT[ROT], turn = vP[BALL] > .97 ? TAU / 3 : TAU;
+        vO[ROT] = vw.key === K_BALL ? dr - turn * Math.floor((dr + .3) / turn) : wrapPi(dr);
+        vw.rotRate = vw.key === K_BALL ? vw.rate * A.blend.unrollTurn : vw.rate;
+      }
+      /* take-off: a crouch pushed into the drawn pose, which the extension then springs out of */
+      if ((FRESH.jump || FRESH.bounce) && vP[BALL] < .3) {
+        const c = FRESH.bounce ? A.jump.bounce : A.jump.crouch;
+        for (let i = 0; i < 14; i++) vO[i] = vP[i] + (POSE.crouch[i] - vP[i]) * c - vT[i];
+      }
+      const kd = Math.exp(-dt * vw.rate), w = vw.rate * A.hands.spring, z = A.hands.damp, n = Math.ceil(w * dt / .3), h = dt / n;
+      for (let i = 0; i < NP; i++) {
+        if (SPR[i] && !RM) for (let j = 0; j < n; j++) { vV[i] += (-w * w * vO[i] - 2 * z * w * vV[i]) * h; vO[i] += vV[i] * h; }
+        else vO[i] *= kd;
+      }
+      vO[ROT] *= Math.exp(-dt * (vw.rotRate - vw.rate));
+    }
+    for (let i = 0; i < NP; i++) vP[i] = vT[i] + vO[i];
+    vw.key = k;
+    /* head lag: the head trails the body's vertical speed changes */
+    if (!RM && !snap) {
+      const Hd = A.head, w = TAU * Hd.hz, n = Math.ceil(w * dt / .3), h = dt / n;
+      vw.hv -= dvy * Hd.kick;
+      for (let j = 0; j < n; j++) { vw.hv += (-w * w * vw.hy - 2 * Hd.damp * w * vw.hv) * h; vw.hy += vw.hv * h; }
+      if (vw.hy > Hd.max) { vw.hy = Hd.max; vw.hv = 0; } else if (vw.hy < -Hd.max) { vw.hy = -Hd.max; vw.hv = 0; }
+    }
+    copyPose(dP, vP);
+    dP[HEAD + 1] += vw.hy;
+    /* curling under a ceiling: nothing pokes above the slide hitbox while the pose is still coming down */
+    if (k === K_BALL && s.gr) { for (let i = 1; i < 14; i += 2) if (dP[i] > A.ball.ceil) dP[i] = A.ball.ceil; if (dP[HEAD + 1] > A.ball.ceil - .14) dP[HEAD + 1] = A.ball.ceil - .14; }
+    /* dust: a kick from each push-off foot, sparks under the rolling ball, spat out faster while revving on a Coil */
+    const u = V.beat - Math.floor(V.beat), st = A.run.stance;
+    if (!RM && !snap && dt > 0) {
+      if (k === K_RUN) {
+        /* phase advanced this frame (the beat clock can step back a hair when it resyncs: no dust then) */
+        const du = u - vw.u + (u < vw.u - .5 ? 1 : 0);
+        for (let leg = 0; leg < 2 && du > 0 && du < .5; leg++) {
+          const a = ((leg ? st + .5 : st) - vw.u + 1) % 1;
+          if (a > 0 && a <= du) {
+            const D = A.run.dust; emit(V.x + A.run.contact - SIM.UPB * st, V.y + .06, 2, { sp: D[0], life: D[1], sz: D[2], ang: Math.PI * .8, spread: .7, g: 4, r: .06, flip: fl, fb: fb });
+          }
+        }
+      } else if (k === K_BALL && s.gr) {
+        const iv = coilK > 0 ? A.ball.coilSpark : A.ball.spark;
+        vw.dust += dt;
+        while (vw.dust > iv) { vw.dust -= iv; emit(V.x - .2, V.y + .04, coilK > 0 ? 2 : 1, { sp: coilK > 0 ? 4 : 2.4, life: .26, sz: .045, ang: Math.PI * .88, spread: .6, g: 6, r: .08, flip: fl, fb: fb }); }
+      }
+    }
+    vw.u = u;
+    drawPose(s, V, k === K_BALL && s.gr ? coilK : 0, 0, Math.atan2(s.gr ? 0 : s.vy, SIM.UPB));
+  }
+  function drawPose(s, V, coilK, hit, ta) {
+    const p = dP, sq = V.squash || 0, st = p[STR], m = p[BALL];
+    let sx = 1 + sq * .2 - st * .5, sy = 1 - sq * .26 + st;
+    if (coilK > 0) { sx *= 1 + .1 * coilK; sy *= 1 - .14 * coilK; if (!RM) g.translate(.022 * coilK * Math.sin(vw.ac * 97), 0); }
+    g.scale(sx, sy);
+    const hx = p[HIP], hy = p[HIP + 1], nx = p[NECK], ny = p[NECK + 1], cx = (hx + nx) / 2, cy = (hy + ny) / 2;
+    /* Halo charge ring, around the body (or the ball) */
+    if (s.air > 0 && !hit) { g.beginPath(); g.arc(hx + (cx - hx) * m, hy + .1 + (cy - hy - .1) * m, 1.05 + .05 * Math.sin(tNow * 12), 0, TAU); g.lineWidth = .07; g.strokeStyle = COL.ha; g.stroke(); }
+    g.save();
+    if (p[ROT]) { g.translate(cx, cy); g.rotate(p[ROT]); g.translate(-cx, -cy); }
     g.lineCap = "round"; g.lineJoin = "round"; g.strokeStyle = g.fillStyle = "#000";
-    for (let i = 0; i < segs.length; i++) {
-      const p = segs[i]; g.beginPath(); g.moveTo(p[0], p[1]); for (let k = 2; k < p.length; k += 2) g.lineTo(p[k], p[k + 1]);
-      g.lineWidth = i === 2 ? .172 : .132; g.stroke();
+    if (m < .97) {
+      /* solid black silhouette: limbs, a thicker torso, the head with a 1px light rim */
+      const shx = nx + (hx - nx) * .1, shy = ny + (hy - ny) * .1;
+      g.beginPath();
+      ik(shx, shy, p[H2], p[H2 + 1], .3, .3, p[ED]); ik(hx, hy, p[F2], p[F2 + 1], .44, .44, p[KD]);
+      ik(hx, hy, p[F1], p[F1 + 1], .44, .44, p[KD]); ik(shx, shy, p[H1], p[H1 + 1], .3, .3, p[ED]);
+      g.lineWidth = .132; g.stroke();
+      g.beginPath(); g.moveTo(hx, hy); g.lineTo(nx, ny); g.lineWidth = .172; g.stroke();
+      g.beginPath(); g.arc(p[HEAD], p[HEAD + 1], .22, 0, TAU); g.fill();
+      g.globalAlpha = 1 - m; g.lineWidth = 1 / sc; g.strokeStyle = FOG.rim; g.stroke(); g.globalAlpha = 1;
     }
-    g.beginPath(); g.arc(head[0], head[1], .22, 0, TAU); g.fill();
-    g.lineWidth = 1 / sc; g.strokeStyle = FOG.rim; g.stroke();
-    if (s.air > 0) { g.beginPath(); g.arc(hip[0], hip[1] + .1, 1.05 + .05 * Math.sin(t * 12), 0, TAU); g.lineWidth = .07; g.strokeStyle = COL.ha; g.stroke(); }
+    g.restore();
+    if (m > .03) ballShape(cx, cy, ANIM.ball.r * smooth((m - .15) / .7), m, p[ROT], hit ? -9 : ta);
   }
 
   /* ---------------- particles ---------------- */
@@ -530,6 +836,10 @@ const RENDER = (function () {
   function frame(V, dt) {
     if (!g || !L) return;
     tNow = V.time; pulse = V.pulse;
+    /* animation clock: real time that stops while paused; events cued since the last frame are stamped with it */
+    vw.ac += dt;
+    for (let i = 0; i < pend.length; i++) { EV[pend[i]] = vw.ac; FRESH[pend[i]] = true; }
+    pend.length = 0;
     const s = V.s, fl = s.flip, fbase = fl && s.zz ? s.zz.base : 0;
     camX = V.x;
     /* camera height: rest on the ground the runner last stood on, keep them in frame */
@@ -712,12 +1022,13 @@ const RENDER = (function () {
       for (let i = 0; i < 8; i++) for (let k = 0; k < 2; k++) { g.fillStyle = (i + k) % 2 ? "#000" : "#EDEDED"; g.fillRect(.09 + i * .226, 4.1 + k * .4, .226, .4); }
       g.strokeStyle = "#000"; g.lineWidth = .05; g.strokeRect(.09, 4.1, 1.81, .8); g.restore();
     }
-    /* player */
-    if (!V.dead) {
+    /* player (after a death, only the brief hit pose) */
+    if (!V.dead || vw.ac - EV.die < ANIM.hit.t) {
       if (fl) { g.save(); g.translate(X(V.x), Y(2 * fbase + CH - V.y)); g.scale(sc, sc); } else { g.save(); g.translate(X(V.x), Y(V.y)); g.scale(sc, -sc); }
       if (s.hang >= 0 && s.h < 1) g.translate(0, s.h - 1.75);
-      stick(V); g.restore();
+      stick(V, dt, fl, fbase); g.restore();
     }
+    for (const e in EV) FRESH[e] = false;
     /* fx */
     for (let i = fx.length - 1; i >= 0; i--) {
       const p = fx[i]; p.life += dt; if (p.life >= p.max) { fx.splice(i, 1); continue; }
@@ -732,7 +1043,7 @@ const RENDER = (function () {
     }
     if (V.flash > 0) { g.fillStyle = "rgba(0,0,0," + (V.flash * .12) + ")"; g.fillRect(-20, -20, W + 40, H + 40); }
   }
-  return { resize: resize, setLevel: setLevel, frame: frame, emit: emit, ring: ring, burst: burst, shake: addShake, COL: COL,
+  return { resize: resize, setLevel: setLevel, frame: frame, emit: emit, ring: ring, burst: burst, shake: addShake, cue: cue, COL: COL,
     setHome: function (v) { if (home !== v) { home = v; if (cv) resize(); } }, get W() { return W; }, get H() { return H; }, setQuality: function (q) { quality = q; } };
 })();
 

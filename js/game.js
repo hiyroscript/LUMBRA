@@ -230,6 +230,7 @@
     const puff = function (n, sp) { RENDER.emit(x, y + .05, n, { sp: sp, life: .4, sz: .08, ang: Math.PI * .5, spread: 2.6, g: 5, flip: fl, fb: fb }); };
     const pop = function (col, n) { RENDER.ring(x, y + .9, col, 1.8, fl, fb); RENDER.emit(x, y + .9, n || 10, { sp: 5, life: .5, sz: .1, col: col, g: 4, flip: fl, fb: fb }); };
     for (const e of ev) {
+      RENDER.cue(e);   /* view-only: the runner's animation keys its transitions off these */
       switch (e) {
         case "jump": puff(4, 2); break;
         case "air": pop(C.ha, 8); break;
