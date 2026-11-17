@@ -174,7 +174,7 @@ Every level is also kept busy. Counting the chart the way `tools/density.js` doe
 | 10-20 | 3.5 to 5.0 | 2 beats |
 | 21-30 | 5.0 to 7.0 | 1.5 beats, except one breather bar (up to 4 beats) before the climax |
 
-The ground also never stays at one height for more than 3 bars after the intro (most levels stay under 2): steps, drops, pits, tiles and Glass give every level a height profile. Many obstacle characters need no input at all (a hanging wall to stay under, a step down, the pit cells under a Comet glide or a Rail ride), which is how level 1 can be dense and still gentle. From level 10, something hangs overhead in about a third or more of the busy cells.
+The ground also never stays at one height for more than 3 bars after the intro (most levels stay under 2): steps, drops, pits, tiles and Glass give every level a height profile. Many obstacle characters need no input at all (a hanging wall to stay under, a step down, the pit cells under a Comet glide or a Rail ride), which is how level 1 can be dense and still gentle. From level 10, something hangs overhead in roughly a quarter to a half of the busy cells (`density.js` prints it as `over`).
 
 Every level is also checked for fairness: it must solve with a safety margin (0.12 on level 1, 0.08 on 2-10, 0.06 on 11-20, 0.04 on 21-30) and, on levels 1-20, with inputs changed only every 12 ticks, so no move needs a window shorter than two solver decisions.
 
