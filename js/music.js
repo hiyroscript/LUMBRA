@@ -4,8 +4,9 @@
    from that level's spec (tempo, key, scale, progressions, kit, bass, lead,
    arp, pad) and from its chart: the lead line plays on exactly the half-beats
    where the level asks for an action, so the song and the level are one thing.
-   This file is the only source of audio. Besides the music it has one sound
-   effect, the death sound (MUSIC.sfx.die), on its own output.
+   This file is the only source of audio. Besides the music it has two sound
+   effects on their own output: the death sound (MUSIC.sfx.die) and the level 1
+   spike tip's tape rewind (MUSIC.sfx.rewind).
    ========================================================================== */
 const MUSIC = (function () {
   "use strict";
@@ -405,6 +406,21 @@ const MUSIC = (function () {
     s.connect(fl); fl.connect(g); g.connect(fx.out); s.start(t); s.stop(t + o.d + .03);
   }
   const sfx = {
+    /* the spike tip's rewind, d s long: a tape whirr (a sawtooth sweeping up, chopped faster and faster, over a rising
+       hiss) and a soft clunk as the tape catches */
+    rewind: function (d) {
+      if (!ctx || offline || ctx.state !== "running") return;
+      fxOut(); const t = ctx.currentTime;
+      const osc = ctx.createOscillator(), fl = ctx.createBiquadFilter(), trem = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain(), g = ctx.createGain();
+      osc.type = "sawtooth"; osc.frequency.setValueAtTime(140, t); osc.frequency.exponentialRampToValueAtTime(900, t + d * .8); osc.frequency.exponentialRampToValueAtTime(320, t + d);
+      fl.type = "lowpass"; fl.frequency.value = 1600;
+      trem.gain.value = .5; lfo.frequency.setValueAtTime(12, t); lfo.frequency.linearRampToValueAtTime(30, t + d); lg.gain.value = .5;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(.08, t + .05); g.gain.setValueAtTime(.08, t + d * .85); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      lfo.connect(lg); lg.connect(trem.gain); osc.connect(fl); fl.connect(trem); trem.connect(g); g.connect(fx.out);
+      osc.start(t); lfo.start(t); osc.stop(t + d + .05); lfo.stop(t + d + .05);
+      fxNoise(t, { f: 500, f2: 4200, d: d, g: .05 });
+      fxTone(t + d - .02, { f: 220, f2: 90, d: .09, type: "square", g: .1, filter: 900 });
+    },
     die: function () {
       if (!ctx || offline || ctx.state !== "running") return;
       fxOut(); const t = ctx.currentTime;

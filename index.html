@@ -87,7 +87,7 @@
     </div>
     <div class="panel-body">
       <div class="set-row">
-        <div class="lbl"><b>Sound effects</b><span>A short sound when you crash.</span></div>
+        <div class="lbl"><b>Sound effects</b><span>A short sound when you crash, and the tape whirr of the level 1 tip's rewind.</span></div>
         <div class="set-ctl"><button class="sw" id="sfxSw" aria-pressed="true" aria-label="Sound effects"></button></div>
       </div>
       <div class="set-row">
@@ -99,11 +99,11 @@
         <div class="set-ctl"><button class="sw" id="shakeSw" aria-pressed="true" aria-label="Screen shake"></button></div>
       </div>
       <div class="set-row">
-        <div class="lbl"><b>Objective tips</b><span>Show the goal and controls at the start of a level.</span></div>
+        <div class="lbl"><b>Objective tips</b><span>Show the goal and controls at the start of a level, and the spike tip on level 1.</span></div>
         <div class="set-ctl"><button class="sw" id="objSw" aria-pressed="true" aria-label="Objective tips"></button></div>
       </div>
       <div class="set-row">
-        <div class="lbl"><b>Reset progress</b><span>Clears every unlock, star and try count.</span></div>
+        <div class="lbl"><b>Reset progress</b><span>Clears every unlock, star and try count, and shows the spike tip again.</span></div>
         <div class="set-ctl"><button class="chip danger" id="resetBtn">reset</button></div>
       </div>
     </div>
@@ -138,6 +138,13 @@
   <div class="ob-keys"><span class="ob-key"><b>jump</b> <span id="obJump"></span></span><span class="ob-key"><b>roll</b> <span id="obRoll"></span></span></div>
   <label class="ob-hide"><input type="checkbox" id="obHide"><i class="ob-box" aria-hidden="true"></i>Don't show again</label>
 </div>
+
+<div id="tipNote" role="status" aria-live="polite">
+  <div class="tip-text"><div class="tip-title" id="tipTitle"></div><div class="tip-body" id="tipBody"></div><button class="chip solid" id="tipOk">understood</button></div>
+  <div class="tip-count" aria-label="seconds left"><svg viewBox="0 0 36 36" aria-hidden="true"><circle class="tip-track" cx="18" cy="18" r="15.9"/><circle class="tip-arc" id="tipArc" cx="18" cy="18" r="15.9" pathLength="100"/></svg><b id="tipNum">5</b></div>
+</div>
+
+<div id="rewindFx" aria-hidden="true"><i class="rw-band"></i><span class="rw-tag">◀◀ rewind</span></div>
 
 <div id="overlay"><div class="card" id="card"></div></div>
 
