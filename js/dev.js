@@ -36,10 +36,9 @@
     const N = api.N;
 
     /* ---------------- progress helpers ---------------- */
-    /* progress: unlocks, selection, records and the level tips already acknowledged (tips) */
-    function current() { const S = api.S(); return { unlocked: S.unlocked, sel: S.sel, rec: JSON.parse(JSON.stringify(S.rec)), tips: JSON.parse(JSON.stringify(S.tips)) }; }
-    function rainbow() { const rec = {}; for (let n = 1; n <= N; n++) rec[n] = { t: 1, s: 4, d: true }; return { unlocked: N, sel: api.S().sel, rec: rec, tips: api.S().tips }; }
-    function fresh() { return { unlocked: 1, sel: 1, rec: {}, tips: {} }; }
+    function current() { const S = api.S(); return { unlocked: S.unlocked, sel: S.sel, rec: JSON.parse(JSON.stringify(S.rec)) }; }
+    function rainbow() { const rec = {}; for (let n = 1; n <= N; n++) rec[n] = { t: 1, s: 4, d: true }; return { unlocked: N, sel: api.S().sel, rec: rec }; }
+    function fresh() { return { unlocked: 1, sel: 1, rec: {} }; }
     function summary(p) {
       let done = 0, rb = 0;
       for (let n = 1; n <= N; n++) { const r = p.rec && p.rec[n]; if (r && r.d) { done++; if (r.s === 4) rb++; } }
@@ -51,10 +50,10 @@
       try { const o = JSON.parse(str); return o && typeof o === "object" && o.rec && typeof o.rec === "object" ? o : null; } catch (e) { return null; }
     }
     function snapshot() { lsSet(SNAP_KEY, JSON.stringify(current())); }
-    /* replace unlocked / sel / rec / tips (a snapshot from before tips existed has none: they show again), keep the settings (music, sound effects, shake, objective tips), then repaint the way the normal reset does */
+    /* replace unlocked / sel / rec, keep the settings (music, sound effects, shake, objective tips), then repaint the way the normal reset does */
     function apply(p, goHome) {
       const S = api.S();
-      api.setS({ music: S.music, sfx: S.sfx, shake: S.shake, objective: S.objective, sel: p.sel, unlocked: p.unlocked, rec: p.rec, tips: p.tips || {} });
+      api.setS({ music: S.music, sfx: S.sfx, shake: S.shake, objective: S.objective, sel: p.sel, unlocked: p.unlocked, rec: p.rec });
       api.saveState(); api.paintHome(false); api.paintLevels();
       if (goHome) { api.show("home"); api.startHome(); }
       paintPanel();
@@ -86,7 +85,7 @@
     sec.innerHTML =
       '<div class="shkr-dev-head"><b>developer</b><span id="shkrDevNow"></span></div>' +
       row("Unlock all (rainbow)", "Every level unlocked with three rainbow stars.", '<button class="chip" id="shkrDevUnlock">unlock all</button>') +
-      row("Reset progress", "Back to a fresh game: level 01 only, no stars, no tries, every level tip shows again.", '<button class="chip danger" id="shkrDevReset">reset</button>') +
+      row("Reset progress", "Back to a fresh game: level 01 only, no stars, no tries.", '<button class="chip danger" id="shkrDevReset">reset</button>') +
       row("Put progress back", "", '<button class="chip" id="shkrDevBack">put back</button>', "shkrDevSnap");
     const body = document.querySelector("#settings .panel-body");
     if (body) body.appendChild(sec);
@@ -115,7 +114,7 @@
         "put back", function () {
           const snap = readSnap(); if (!snap) return;
           lsDel(SNAP_KEY);
-          apply({ unlocked: snap.unlocked, sel: snap.sel, rec: snap.rec, tips: snap.tips }, true);
+          apply({ unlocked: snap.unlocked, sel: snap.sel, rec: snap.rec }, true);
         });
     });
     /* progress changes while playing, so refresh the panel whenever Settings opens */
