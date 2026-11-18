@@ -17,7 +17,7 @@ Either way there is nothing to install: open `index.html` in a browser.
 | Roll | `↓`, `S` | right click | hold the left half of the screen |
 | Pause / resume | `Esc` | pause button (top right) | pause button (top right) |
 
-On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts the selected level. On How to play, `←` / `→` step through the pages. `Esc` closes How to play, Settings or Levels and goes back home. When a card is open (new hazard, pause, level cleared, confirmations), `Enter` picks its first button. The game also pauses itself when the tab is hidden or the window loses focus.
+On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts the selected level. On How to play, `←` / `→` step through the pages. `Esc` closes How to play, Settings or Levels and goes back home. When a card is open (new hazard, level tip, pause, level cleared, confirmations), `Enter` picks its first button; on a level tip `Esc` does the same. The game also pauses itself when the tab is hidden or the window loses focus.
 
 ## Features
 
@@ -31,6 +31,7 @@ On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts th
 - New hazard cards: the first time you start the level that brings in a hazard (from the home screen, "next level" or "replay"; not on a restart), the game waits, frozen at the start with no music, behind a card that names the hazard, says in a few plain words what to do, and shows it in a small looping preview: the runner meeting that hazard and using it, drawn by the game's own renderer in the level's colours. "Understood" (or `Enter`) starts the run from the first beat.
 - How to play (home screen, top right): a carousel of short pages, each with a live looping demo drawn by the game's own renderer, a name and a sentence or two. The pages cover the basics (jump, roll, dive), every plain obstacle (spikes, pits, bars, hanging walls, steps, floating spike blocks, spiked steps, low tunnels, hurdles, crushers, rolling blades) and all 15 hazards, the hazard pages with the same text and demo as their new hazard cards and the level that brings each one in. While a demo presses a button, JUMP or ROLL shows at the bottom of it. "Next" and "back" step through the pages, with dots showing where you are. Below are the hazard colours and a short summary of the goal and the controls.
 - Objective box: at the start of a level, a box says "Run to the end" and shows the jump and roll controls side by side. It fades out by itself after a few seconds (later while the mouse is over it), or, on a level with a new hazard card, sits right above the card and leaves with it. Its "Don't show again" checkbox turns it off; the Objective tips setting turns it back on.
+- Level 1 spike tip: on level 1, about one beat before the runner reaches the first spike, the run freezes (music silent, runner still on screen) behind a card that says to avoid the spikes and how to jump, with one button, "Understood". It (or `Enter` / `Esc`) picks the run up from exactly the same spot, on the beat. It shows on every run that gets that far until you press "Understood", then never again. The Objective tips setting turns it off too, and resetting progress brings it back.
 
   | Level | Hazard | Level | Hazard | Level | Hazard |
   |---|---|---|---|---|---|
@@ -42,7 +43,7 @@ On the home screen, `←` / `→` browse levels and `Enter` or `Space` starts th
 
 - Star rating per level, based on how many tries the first clear took: 1 try earns three rainbow stars, up to 3 tries three stars, up to 7 tries two stars, more than that one star. Try counts are recorded per level, and clearing a level unlocks the next one.
 - Rebirth: on a cleared level, "rebirth level" clears that level's stars and tries. Unlocked levels stay unlocked.
-- Settings: sound effects on/off (the crash sound), music volume, screen shake on/off, objective tips on/off (the objective box at the start of a level), and reset all progress. Resetting progress keeps the settings.
+- Settings: sound effects on/off (the crash sound), music volume, screen shake on/off, objective tips on/off (the objective box at the start of a level and the level 1 spike tip), and reset all progress. Resetting progress keeps the settings and shows the spike tip again.
 - Reduced motion: with `prefers-reduced-motion: reduce`, the play button's pulse animation, the foliage sway and the drifting fog wisps are turned off. The runner keeps all its poses but drops the purely decorative extras: dust kicks and sparks, the ball's motion trail, the Coil shake, head and hand follow-through, the glide bob and the drifting limbs in a Thermal. Its Rail swing settles without wobbling. A new hazard card, and each How to play page, shows one still frame of its demo instead of the loop.
 - Progress and settings are saved in `localStorage`.
 
@@ -205,7 +206,7 @@ shkr/
 │   ├── music.js        sequenced Web Audio synthesis: one original track per level, built from its spec and chart, and the crash sound (MUSIC.sfx)
 │   ├── backdrops.js    the terrain background layer: five looping parallax strips of fog-grey silhouettes per world
 │   ├── render.js       "fog silhouette" renderer: misty sky, grey layers, black terrain, colour only on hazards, and the runner's animation (RENDER.create makes a second one for the hazard previews)
-│   ├── game.js         state, clock, input, HUD, home screen, objective box, new hazard cards and their previews, How to play, results, rebirth
+│   ├── game.js         state, clock, input, HUD, home screen, objective box, new hazard cards and their previews, level tips, How to play, results, rebirth
 │   └── dev.js          developer build only: rainbow unlock-all default, developer section in Settings, DEV badge (loaded last)
 ├── tools/
 │   ├── build-release.sh   makes the release: the repo minus the developer code, with a guard against leaks
@@ -246,8 +247,8 @@ The developer build needs no build step: Pages keeps deploying the `main` branch
 **Developer section** (Settings, below the normal rows). Each action asks for confirmation first, keeps the settings (sound effects, music, shake, objective tips), and returns to the home screen.
 
 - *Unlock all (rainbow)*: every level unlocked with three rainbow stars.
-- *Reset progress*: a fresh game (level 1, no stars, no tries), to test the real first-time flow.
-- *Put progress back*: restores unlocks, stars, tries and the selected level exactly as they were right before the last reset or unlock all. Both of those save a snapshot first. One level of undo, and the button is disabled when there is no snapshot.
+- *Reset progress*: a fresh game (level 1, no stars, no tries, level tips not yet seen), to test the real first-time flow.
+- *Put progress back*: restores unlocks, stars, tries, acknowledged level tips and the selected level exactly as they were right before the last reset or unlock all. Both of those save a snapshot first. One level of undo, and the button is disabled when there is no snapshot.
 
 **Release build.** `.github/workflows/build.yml` runs on every push to `main` (except pushes that only touch `max`, Markdown files or `docs/`, none of which go into the release) and on manual runs:
 
@@ -280,6 +281,7 @@ node tools/parity-check.js . /tmp/shadow-skirr
 - **Don't convert to ES modules** unless you also refactor the shared globals and serve the game from a local server. Modules don't share a global scope and don't load from `file://`.
 - **Runner animation** is view-only. The stickman section of `js/render.js` reads the simulation state, the beat and the frame time, but never writes to `SIM` state, so replays and the demo are unaffected. `game.js` passes each simulation event to it through `RENDER.cue`. Every tunable (run cycle keys, blend rates, ball, hang, glide, timings) is in the `ANIM` block at the top of that section.
 - **New hazard cards** (`INTRO` in `js/game.js`): each hazard has its card text and a tiny preview chart in the same chart language as the levels, played by the real simulation with a scripted input (`in`, in beats) and drawn by a second renderer (`RENDER.create`) on the card's own canvas, with its own clock. It never touches the frozen game's state, clock or music. While the card is up the game is in mode `"intro"`: the run is set up and its first frame drawn, but the music and the clock only start on "Understood". If you change how a hazard works, check that its preview still plays out: run its chart and input through `SIM.step` and look for its event (`bounce`, `halo`, `rift`...) and no death before `to`.
+- **Level tips** (`TIPS` in `js/game.js`): a tip is keyed by level and names the kind of compiled object it warns about (`find`, matched against the object's `v`, e.g. `"sp"` for `^`, `M` and `I` spikes) and how many beats before it to stop (`lead`). The freeze tick is found in the compiled level (first such object by `x0`, minus `lead` beats), so a chart change moves it along. In mode `"play"` the stepping loop stops at that tick and the game freezes like a pause (`G.tip`, `G.paused`, music suspended, input dropped); "Understood" resumes through the same `unfreeze()` as the pause card, which moves the frame clock on by the time spent frozen. Acknowledged tips are saved in `S.tips` (`{ 1: true }`). Bot runs (`G.bot`), the home demo, previews and the tools never stop for a tip, and `js/sim.js` knows nothing about them.
 - **How to play** (`HOWTO` in `js/game.js`): the basics and plain obstacle pages have charts in the same format as `INTRO`, and each hazard page reuses its `INTRO` entry. Each page plays through the same `preview()` as a hazard card, on its own renderer (sharper, sized to the canvas) with the JUMP / ROLL label turned on. The same rule applies: if you change how a move or an obstacle works, run every page's chart and input through `SIM.step` and check it reaches `to` with no `die` event. A death in a preview never plays the crash sound or shakes the screen; only a real run (mode `"play"`) does.
 - **Crash sound** (`MUSIC.sfx.die()`, vl's "miss" recipe): a falling sawtooth and a closing noise sweep through its own compressor and gain straight to the destination, never through the music's `master` or a song bus. `MUSIC.init()` builds that output with the audio context, because a brand-new compressor is nearly silent for its first moments. The offline render (`renderStats`) never builds or plays it.
 - **Save data** lives under the `localStorage` key `shadowskirr.v1` in the release and `shadowskirr.dev.v1` in the developer build. Saves from the old `lumbra.v1` key are migrated automatically on load, for the real key only.

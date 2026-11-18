@@ -17,7 +17,7 @@
   /* ---------------- saved state ---------------- */
   /* optional save-key override (README: Builds); without it, the real key */
   const REAL_KEY = "shadowskirr.v1";
-  const KEY = (window.SHKR_DEV && window.SHKR_DEV.saveKey) || REAL_KEY, LEGACY_KEY = "lumbra.v1", DEFAULTS = { music: 0.8, sfx: true, shake: true, objective: true, sel: 1, unlocked: 1, rec: {} };
+  const KEY = (window.SHKR_DEV && window.SHKR_DEV.saveKey) || REAL_KEY, LEGACY_KEY = "lumbra.v1", DEFAULTS = { music: 0.8, sfx: true, shake: true, objective: true, sel: 1, unlocked: 1, rec: {}, tips: {} };
   let S = loadState();
   function loadState() {
     let raw = {}, str = null;
@@ -40,6 +40,7 @@
     for (const k in DEFAULTS) o[k] = raw[k] !== undefined && raw[k] !== null ? raw[k] : JSON.parse(JSON.stringify(DEFAULTS[k]));
     o.unlocked = Math.max(1, Math.min(N, o.unlocked | 0 || 1)); o.sel = Math.max(1, Math.min(N, o.sel | 0 || 1));
     if (typeof o.rec !== "object" || !o.rec) o.rec = {};
+    if (typeof o.tips !== "object" || !o.tips || Array.isArray(o.tips)) o.tips = {};   /* level tips already acknowledged, { n: true } */
     o.objective = o.objective !== false;   /* saves from before the setting existed still show the objective box */
     o.sfx = o.sfx !== false;               /* ... and still get the death sound */
     return o;
@@ -79,7 +80,7 @@
   };
 
   const G = { mode: "splash", paused: false, n: 1, def: null, L: null, song: null, st: null, tryN: 1, session: 0, beat: 0, beat0: 0, spb: 0.5,
-    deadAt: 0, wonAt: 0, squash: 0, restY: 0, snap: true, cardUp: false, pauseT: 0 };
+    deadAt: 0, wonAt: 0, squash: 0, restY: 0, snap: true, cardUp: false, pauseT: 0, tip: false };
   const keys = { j: false, s: false, qj: false, qs: false };
 
   /* ---------------- screens ---------------- */
@@ -176,7 +177,7 @@
   $("#nextBtn").addEventListener("click", function () { browse(1); });
   function homeTheme() { const n = Math.min(S.sel, S.unlocked); return LEVELS[n - 1]; }
   function startHome() {
-    G.mode = "home"; G.paused = false; $("#hud").classList.remove("on"); hideObjective();
+    G.mode = "home"; G.paused = false; G.tip = false; $("#hud").classList.remove("on"); hideObjective();
     const def = homeTheme();
     G.L = demoL; G.spb = 60 / HOME.mu[0]; G.st = SIM.newState(); G.st.ev = []; G.beat0 = 0; G.squash = 0; G.restY = 0; G.snap = true;
     RENDER.setHome(true); RENDER.setLevel(demoL, def.th, def.n * 101);
@@ -230,8 +231,8 @@
   sw.addEventListener("click", function () { S.shake = !S.shake; paintSettings(); saveState(); });
   osw.addEventListener("click", function () { S.objective = !S.objective; paintSettings(); saveState(); });
   $("#resetBtn").addEventListener("click", function () {
-    showCard({ eyebrow: "settings", title: "Reset everything?", body: "All unlocks, stars and try counts will be cleared.",
-      acts: [{ t: "reset", danger: true, fn: function () { S.rec = {}; S.unlocked = 1; S.sel = 1; saveState(); hideCard(); show("home"); startHome(); } }, { t: "cancel", fn: hideCard }] });
+    showCard({ eyebrow: "settings", title: "Reset everything?", body: "All unlocks, stars and try counts will be cleared, and the level 1 tip will show again.",
+      acts: [{ t: "reset", danger: true, fn: function () { S.rec = {}; S.unlocked = 1; S.sel = 1; S.tips = {}; saveState(); hideCard(); show("home"); startHome(); } }, { t: "cancel", fn: hideCard }] });
   });
 
   /* ---------------- objective box ----------------
@@ -487,7 +488,7 @@
   function beginRun(first) {
     const r = rec(G.n);
     if (!r.d) { r.t++; saveState(); G.tryN = r.t; } else { G.session++; G.tryN = G.session; }
-    G.st = SIM.newState(); G.st.ev = []; G.paused = false; G.squash = 0; G.restY = 0; G.snap = true; G.beat0 = 0;
+    G.st = SIM.newState(); G.st.ev = []; G.paused = false; G.tip = false; G.squash = 0; G.restY = 0; G.snap = true; G.beat0 = 0;
     keys.qj = keys.qs = false;
     RENDER.setLevel(G.L, G.def.th, G.n * 101);
     paintHud(); hudFill.style.transform = "scaleX(0)";
@@ -564,6 +565,45 @@
     }, 1150);
   }
 
+  /* ---------------- level tips ----------------
+     A one-time tip in the middle of a level's run: just before the runner reaches the first object of a kind
+     (find: the compiled object's v, e.g. "sp" for spikes), the game freezes like a pause, behind a card with one
+     button. "Understood" (Enter, Esc) picks the run up from the same tick, in time with the music, and the tip
+     never comes back (S.tips). Until then it shows on every run of the level that gets that far. The Objective tips
+     setting turns tips off too. Only real play: the home demo, previews and bot runs never stop for one, and the
+     sim doesn't know about tips at all. lead: how many beats before the object's left edge the game freezes. */
+  const TIPS = {
+    1: { find: "sp", lead: 1, title: "Watch out",
+      body: TOUCH ? "Avoid the spikes. Tap the right side of the screen to jump over them." : "Avoid the spikes. Jump over them with Space, ↑ or W, or a left click." }
+  };
+  /* the tick where level n's tip freezes the game, found in the compiled level so a chart change can't break it; -1: none */
+  const tipTicks = {};
+  function tipTick(n) {
+    if (tipTicks[n] !== undefined) return tipTicks[n];
+    const tip = TIPS[n]; let t = -1;
+    if (tip) for (const o of getL(n).objs) if (o.v === tip.find) { t = Math.max(0, Math.floor((o.x0 - tip.lead * SIM.UPB) / DX)); break; }   /* objs are sorted by x0 */
+    return (tipTicks[n] = t);
+  }
+  function tipDue(st) {
+    if (G.tip || G.bot || G.mode !== "play" || st.dead || !S.objective || !TIPS[G.n] || S.tips[G.n]) return false;
+    const t = tipTick(G.n);
+    return t >= 0 && st.tick >= t;
+  }
+  function dropInput() { keys.j = keys.s = keys.qj = keys.qs = false; for (const id in ptr) delete ptr[id]; }
+  function showTip() {
+    const tip = TIPS[G.n];
+    G.tip = true; G.paused = true; G.pauseT = now(); MUSIC.suspend(); dropInput();
+    hideObjective();
+    showCard({ eyebrow: "level " + pad2(G.n) + "  ·  tip", title: tip.title, body: tip.body,
+      acts: [{ t: "Understood", solid: true, fn: dismissTip }] });
+  }
+  function dismissTip() {
+    if (!G.tip) return;
+    hideCard(true); dropInput();
+    S.tips[G.n] = true; saveState();
+    G.tip = false; unfreeze();
+  }
+
   /* ---------------- pause ---------------- */
   function pauseGame() {
     if (G.mode !== "play" || G.paused) return;
@@ -573,9 +613,14 @@
         { t: "restart", fn: function () { hideCard(); MUSIC.resume(); beginRun(false); } },
         { t: "quit", fn: function () { hideCard(); MUSIC.resume(); G.paused = false; show("home"); startHome(); } }] });
   }
-  function resumeGame() {
-    hideCard(); const p = MUSIC.resume();
-    const go = function () { clock.t0p += now() - G.pauseT; clock.off = null; G.paused = false; };
+  function resumeGame() { hideCard(); unfreeze(); }
+  /* back into the run after a freeze (pause or level tip): the music picks up where it stopped, and the frame clock is
+     moved on by the time spent frozen, so the loop's catch-up guard doesn't see the gap as a stall and pause again */
+  let thawing = false;
+  function unfreeze() {
+    if (thawing) return; thawing = true;   /* once: Esc can land again while MUSIC.resume() is still pending */
+    const p = MUSIC.resume();
+    const go = function () { thawing = false; clock.t0p += now() - G.pauseT; clock.off = null; G.paused = false; };
     if (p && p.then) p.then(go, go); else go();
   }
   $("#pauseBtn").addEventListener("click", function (e) { e.stopPropagation(); pauseGame(); });
@@ -596,8 +641,8 @@
   document.addEventListener("keydown", audioGesture, { capture: true });
   window.addEventListener("keydown", function (e) {
     const c = e.code;
-    /* Esc: pause / resume in a run; on a panel (How to play, Settings, Levels) with no card open, back home */
-    if (c === "Escape") { if (G.mode === "play" && !G.paused) pauseGame(); else if (G.paused) resumeGame(); else if (!G.cardUp && panelOn()) show("home"); return; }
+    /* Esc: pause / resume in a run (on a level tip, the same as "Understood"); on a panel (How to play, Settings, Levels) with no card open, back home */
+    if (c === "Escape") { if (G.tip) dismissTip(); else if (G.mode === "play" && !G.paused) pauseGame(); else if (G.paused && !thawing) resumeGame(); else if (!G.cardUp && panelOn()) show("home"); return; }
     if (c === "Space" && e.target === obChk) return;   /* the keyboard is on "Don't show again": Space ticks it */
     if (G.cardUp) { if (c === "Enter" && cardActs[0]) { e.preventDefault(); cardActs[0].fn(); } return; }
     if (G.mode === "play") {
@@ -649,6 +694,7 @@
         if (target - st.tick > TPB * 1.5) { pauseGame(); }
         else {
           while (st.tick < target && !st.dead && !st.won) {
+            if (tipDue(st)) { showTip(); break; }
             if (G.bot) { const v = G.bot.path[Math.floor(st.tick / G.bot.DEC)] || 0; keys.j = !!(v & 1); keys.s = !!(v & 2); }
             SIM.step(L, st, keys.j || keys.qj, keys.s || keys.qs, 0); keys.qj = keys.qs = false;
             onEvents(st, st.tick * DX);
