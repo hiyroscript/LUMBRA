@@ -80,7 +80,7 @@
   };
 
   const G = { mode: "splash", paused: false, n: 1, def: null, L: null, song: null, st: null, tryN: 1, session: 0, beat: 0, beat0: 0, spb: 0.5,
-    deadAt: 0, wonAt: 0, squash: 0, restY: 0, snap: true, cardUp: false, pauseT: 0, tip: false, mark: null };
+    deadAt: 0, wonAt: 0, squash: 0, restY: 0, snap: true, cardUp: false, pauseT: 0, tip: false, mark: null, hist: null, rw: null };
   const keys = { j: false, s: false, qj: false, qs: false };
 
   /* ---------------- screens ---------------- */
@@ -177,7 +177,7 @@
   $("#nextBtn").addEventListener("click", function () { browse(1); });
   function homeTheme() { const n = Math.min(S.sel, S.unlocked); return LEVELS[n - 1]; }
   function startHome() {
-    G.mode = "home"; G.paused = false; G.tip = false; G.mark = null; tipEl.classList.remove("show"); $("#hud").classList.remove("on"); hideObjective();
+    G.mode = "home"; G.paused = false; stopTip(); G.hist = null; $("#hud").classList.remove("on"); hideObjective();
     const def = homeTheme();
     G.L = demoL; G.spb = 60 / HOME.mu[0]; G.st = SIM.newState(); G.st.ev = []; G.beat0 = 0; G.squash = 0; G.restY = 0; G.snap = true;
     RENDER.setHome(true); RENDER.setLevel(demoL, def.th, def.n * 101);
@@ -488,8 +488,9 @@
   function beginRun(first) {
     const r = rec(G.n);
     if (!r.d) { r.t++; saveState(); G.tryN = r.t; } else { G.session++; G.tryN = G.session; }
-    G.st = SIM.newState(); G.st.ev = []; G.paused = false; G.tip = false; G.mark = null; G.squash = 0; G.restY = 0; G.snap = true; G.beat0 = 0;
+    G.st = SIM.newState(); G.st.ev = []; G.paused = false; stopTip(); G.squash = 0; G.restY = 0; G.snap = true; G.beat0 = 0;
     keys.qj = keys.qs = false;
+    G.hist = tipPending() ? [SIM.clone(G.st)] : null;   /* every tick's state up to the tip, for its rewind */
     RENDER.setLevel(G.L, G.def.th, G.n * 101);
     paintHud(); hudFill.style.transform = "scaleX(0)";
     const h = first ? newHazard(G.n) : null;
@@ -565,70 +566,97 @@
     }, 1150);
   }
 
-  /* ---------------- level tips ----------------
-     A one-time tip in the middle of a level's run: just before the runner reaches the first object of a kind
-     (find: the compiled object's v, e.g. "sp" for spikes), the game freezes like a pause. There is no card: the
-     object gets a red ring on the canvas (RENDER.frame's V.mark) and a note next to it says what to do, with a
-     countdown (TIP_SECS). At zero the run picks up from the same tick, in time with the music, and the tip never
-     comes back (S.tips). Until then it shows on every run of the level that gets that far. The countdown only runs
-     while the window has focus (the loop doesn't run at all in a hidden tab). The Objective tips setting turns tips
-     off too. Only real play: the home demo, previews and bot runs never stop for one, and the sim doesn't know about
-     tips at all. lead: how many beats before the object's left edge the game freezes. */
-  const TIP_SECS = 5;
-  const TIPS = {
-    1: { find: "sp", lead: 1, title: "Avoid the spikes",
-      body: TOUCH ? "Tap the right side of the screen to jump over them" : "Jump over them: space, ↑, w or click" }
-  };
-  /* level n's tip object (the first one of its kind by x0, objs are sorted) and the tick where the game freezes;
-     found in the compiled level, so a chart change can't break it. null: none */
-  const tipAt = {};
-  function tipSpot(n) {
-    if (tipAt[n] !== undefined) return tipAt[n];
-    const tip = TIPS[n]; let r = null;
-    if (tip) for (const o of getL(n).objs) if (o.v === tip.find) { r = { o: o, tick: Math.max(0, Math.floor((o.x0 - tip.lead * SIM.UPB) / DX)) }; break; }
-    return (tipAt[n] = r);
+  /* ---------------- level 1 spike tip ----------------
+     Once, on level 1 only, for its first spike only: just before the runner reaches that spike the game freezes like
+     a pause. There is no card: the spike gets a red ring on the canvas (RENDER.frame's V.mark) and a note next to it
+     says what to do, with an "understood" button and a countdown (TIP.secs). Either one ends it, and the tip never
+     comes back (S.tips[1]). Then the run plays backwards, like a tape rewinding, to the start of a bar at least
+     TIP.back beats before the spike, and goes on from there with the music started again at that beat, so the player
+     gets a run-up to the spike they were just shown. Until it is acknowledged it shows on every run that gets that
+     far. The countdown and the rewind only run while the window has focus (and the loop doesn't run at all in a
+     hidden tab). The Objective tips setting turns it off. Only real play: the home demo, previews and bot runs never
+     stop for it, and the sim doesn't know about it: the rewind puts back states recorded during the run (G.hist).
+     G.tip: false, "note" (frozen, note up) or "rewind". */
+  const TIP = { lv: 1, find: "sp", lead: 1, back: 4, secs: 5, rewind: 1.1, title: "Avoid the spikes",
+    body: TOUCH ? "Tap the right side of the screen to jump over them" : "Jump over them: space, ↑, w or click" };
+  /* the spike (the first "sp" object by x0; objs are sorted), the tick where the game freezes (lead beats before its
+     left edge) and the tick the rewind goes back to; found in the compiled level, so a chart change can't break it */
+  let tipAt;
+  function tipSpot() {
+    if (tipAt !== undefined) return tipAt;
+    tipAt = null;
+    for (const o of getL(TIP.lv).objs) if (o.v === TIP.find) {
+      const beat = o.x0 / SIM.UPB;
+      tipAt = { o: o, tick: Math.max(0, Math.floor((beat - TIP.lead) * TPB)), back: Math.max(0, Math.floor((beat - TIP.back) / 4) * 4) * TPB };
+      break;
+    }
+    return tipAt;
   }
-  function tipDue(st) {
-    if (G.tip || G.bot || G.mode !== "play" || st.dead || !S.objective || !TIPS[G.n] || S.tips[G.n]) return false;
-    const p = tipSpot(G.n);
-    return !!p && st.tick >= p.tick;
-  }
-  const tipEl = $("#tipNote"), tipNum = $("#tipNum"), tipArc = $("#tipArc");
-  let tipLeft = 0, winFocus = true;
+  /* would this run stop for the tip? (beginRun records the run's states only then) */
+  function tipPending() { return G.n === TIP.lv && !S.tips[TIP.lv] && S.objective && !G.bot && !!tipSpot(); }
+  function tipDue(st) { return !G.tip && G.mode === "play" && !st.dead && tipPending() && !!G.hist && st.tick >= tipAt.tick; }
+  const tipEl = $("#tipNote"), tipNum = $("#tipNum"), tipArc = $("#tipArc"), rwEl = $("#rewindFx");
+  let tipLeft = 0, rwT = 0, winFocus = true;
   window.addEventListener("focus", function () { winFocus = true; });
   window.addEventListener("blur", function () { winFocus = false; });
   function dropInput() { keys.j = keys.s = keys.qj = keys.qs = false; for (const id in ptr) delete ptr[id]; }
   function showTip() {
-    const tip = TIPS[G.n], o = tipSpot(G.n).o;
-    G.tip = true; G.paused = true; G.pauseT = now(); MUSIC.suspend(); dropInput();
+    const o = tipAt.o;
+    G.tip = "note"; G.paused = true; G.pauseT = now(); MUSIC.suspend(); dropInput();
     hideObjective();
-    /* the ring: round the object's box, with some air */
+    /* the ring: round the spike's box, with some air */
     G.mark = { x: o.x, y: (o.y0 + o.y1) / 2, r: Math.max(o.x1 - o.x0, o.y1 - o.y0) / 2 + .55, flip: o.flip, fb: o.fb || 0 };
-    $("#tipTitle").textContent = tip.title; $("#tipBody").textContent = tip.body;
-    tipLeft = TIP_SECS; paintTip();
+    $("#tipTitle").textContent = TIP.title; $("#tipBody").textContent = TIP.body;
+    tipLeft = TIP.secs; paintTip();
     tipEl.classList.add("show");
   }
   /* the note sits above the ring (below it if there is no room), kept on screen; the countdown number and its draining ring */
   function paintTip() {
     tipNum.textContent = Math.max(1, Math.ceil(tipLeft));
-    tipArc.style.strokeDashoffset = (100 * (1 - tipLeft / TIP_SECS)).toFixed(2);
+    tipArc.style.strokeDashoffset = (100 * (1 - tipLeft / TIP.secs)).toFixed(2);
     const m = G.mark, c = RENDER.point(m.x, m.y, m.flip, m.fb), rp = RENDER.point(m.x + m.r, m.y, false, 0).x - c.x;
     const w = tipEl.offsetWidth, h = tipEl.offsetHeight, W = window.innerWidth, gap = 14, edge = 12;
     let top = c.y - rp - gap - h; if (top < 70) top = c.y + rp + gap;
     tipEl.style.left = Math.round(Math.max(edge, Math.min(W - w - edge, c.x - w / 2))) + "px";
     tipEl.style.top = Math.round(top) + "px";
   }
-  /* from the main loop while the tip is up: count down (only with focus), then go on */
-  function tickTip(dt) {
-    if (winFocus) tipLeft -= dt;
-    if (tipLeft > 0) { paintTip(); return; }
-    endTip();
-  }
-  function endTip() {
-    if (!G.tip) return;
+  $("#tipOk").addEventListener("click", function () { leaveTip(); });
+  tipEl.addEventListener("pointerdown", function (e) { e.stopPropagation(); });   /* never game input */
+  /* "understood", Enter, or the countdown running out: the note goes, the rewind starts */
+  function leaveTip() {
+    if (G.tip !== "note") return;
+    if (document.activeElement && tipEl.contains(document.activeElement)) document.activeElement.blur();
     tipEl.classList.remove("show"); G.mark = null; dropInput();
-    S.tips[G.n] = true; saveState();
-    G.tip = false; unfreeze();
+    S.tips[TIP.lv] = true; saveState();
+    G.tip = "rewind"; rwT = 0; G.rw = { from: G.st.tick, to: tipAt.back };
+    document.body.classList.add("rewinding"); rwEl.classList.add("on");
+    /* the song stops; a tape whirr plays over the rewind (the audio has to run for it) */
+    const p = MUSIC.resume(), whirr = function () { MUSIC.stop(0.08); if (S.sfx && G.tip === "rewind") MUSIC.sfx.rewind(RM ? .35 : TIP.rewind); };
+    if (p && p.then) p.then(whirr, whirr); else whirr();
+  }
+  /* the recorded states, played backwards, fast at first and easing into the bar it goes back to; with reduced motion
+     it just holds the old frame for a moment and jumps */
+  function rewindStep(dt) {
+    if (winFocus) rwT += dt;
+    const d = RM ? .35 : TIP.rewind, p = Math.min(1, rwT / d), e = RM ? (p < 1 ? 0 : 1) : 1 - Math.pow(1 - p, 3);
+    const k = Math.round(G.rw.from + (G.rw.to - G.rw.from) * e), s = G.hist[k] || G.hist[G.rw.to];
+    G.st = s; G.beat = k / TPB;
+    if (s.gr) G.restY = s.flip && s.zz ? s.zz.base : s.y; else if (s.flip && s.zz) G.restY = s.zz.base;
+    if (p >= 1) endRewind();
+  }
+  /* back in the run at the bar it rewound to: that tick's state, the song from that beat, both clocks on it */
+  function endRewind() {
+    const b = G.rw.to / TPB;
+    G.st = SIM.clone(G.hist[G.rw.to]); G.st.ev = []; G.hist = null; G.rw = null;
+    document.body.classList.remove("rewinding"); rwEl.classList.remove("on");
+    dropInput(); G.tip = false; G.beat = b;
+    if (G.song) MUSIC.start(G.song, b);
+    clock.off = null; clock.t0p = now() + 0.1 - b * G.spb; G.paused = false;
+    if (!winFocus || document.hidden) pauseGame();
+  }
+  function stopTip() {
+    G.tip = false; G.mark = null; G.rw = null; tipEl.classList.remove("show");
+    document.body.classList.remove("rewinding"); rwEl.classList.remove("on");
   }
 
   /* ---------------- pause ---------------- */
@@ -669,7 +697,8 @@
   window.addEventListener("keydown", function (e) {
     const c = e.code;
     /* Esc: pause / resume in a run (nothing while a level tip counts down); on a panel (How to play, Settings, Levels) with no card open, back home */
-    if (G.tip) return;   /* a level tip counting down: no keys at all, so nothing is queued for when it goes */
+    /* the spike tip: Enter is "understood"; no other key does anything, so nothing is queued for the run */
+    if (G.tip) { if (c === "Enter" && G.tip === "note") { e.preventDefault(); leaveTip(); } else if (c === "Space" || c.indexOf("Arrow") === 0) e.preventDefault(); return; }
     if (c === "Escape") { if (G.mode === "play" && !G.paused) pauseGame(); else if (G.paused && !thawing) resumeGame(); else if (!G.cardUp && panelOn()) show("home"); return; }
     if (c === "Space" && e.target === obChk) return;   /* the keyboard is on "Don't show again": Space ticks it */
     if (G.cardUp) { if (c === "Enter" && cardActs[0]) { e.preventDefault(); cardActs[0].fn(); } return; }
@@ -709,6 +738,7 @@
     const t = ts / 1000, dt = Math.min(0.05, Math.max(0.001, t - last)); last = t;
     if (G.mode === "splash" || !G.st || !G.L) return;
     if (G.mode === "intro" && !G.snap) return;   /* frozen behind a new hazard card: drawn once, and again after a resize */
+    if (G.tip === "rewind") rewindStep(dt);
     const st = G.st, L = G.L;
     if (!G.paused) {
       MUSIC.schedule();
@@ -725,6 +755,7 @@
             if (tipDue(st)) { showTip(); break; }
             if (G.bot) { const v = G.bot.path[Math.floor(st.tick / G.bot.DEC)] || 0; keys.j = !!(v & 1); keys.s = !!(v & 2); }
             SIM.step(L, st, keys.j || keys.qj, keys.s || keys.qs, 0); keys.qj = keys.qs = false;
+            if (G.hist) { const c = SIM.clone(st); c.ev = []; G.hist[st.tick] = c; }
             onEvents(st, st.tick * DX);
           }
           if (st.won && G.mode === "play") win();
@@ -740,9 +771,9 @@
     let thermal = false; for (const z of L.zones) if (z.k === "T" && x >= z.x0 && x < z.x1) thermal = true;
     const bf = G.beat - Math.floor(G.beat), pulse = G.beat < 0 || dead ? 0 : Math.pow(Math.max(0, 1 - bf * 2.3), 2);
     RENDER.frame({ s: st, x: x, y: y, beat: G.beat, time: t, pulse: pulse, dead: dead, squash: G.squash, restY: G.restY, snap: G.snap, thermal: thermal,
-      demo: G.mode === "home" || G.mode === "launch", noShake: !S.shake, mark: G.mark }, G.paused || G.mode === "intro" ? 0 : dt);
+      demo: G.mode === "home" || G.mode === "launch", noShake: !S.shake, mark: G.mark }, (G.paused && G.tip !== "rewind") || G.mode === "intro" ? 0 : dt);
     G.snap = false;
-    if (G.tip) tickTip(dt);
+    if (G.tip === "note") { if (winFocus) tipLeft -= dt; if (tipLeft > 0) paintTip(); else leaveTip(); }
     if (G.mode === "play" || dead || G.mode === "won") hudFill.style.transform = "scaleX(" + Math.max(0, Math.min(1, x / L.endX)).toFixed(4) + ")";
     /* drop resolution once if the device cannot hold 60 fps */
     if (G.mode === "play" && !G.paused && !lowQ) { slow = dt > 0.024 ? slow + 1 : Math.max(0, slow - 0.25); if (slow > 70) { lowQ = true; RENDER.setQuality(0.72); RENDER.resize(); } }
