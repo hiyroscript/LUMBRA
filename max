@@ -1,37 +1,98 @@
-In the hiyroscript/shkr repo (Shadow Skirr, a vanilla-JS rhythm runner, no build step), add a one-time "avoid the spikes" tip to level 1.
+# Task: Shadow Skirr (hiyroscript/shkr): play icon on the home pulse button, and remove the splash screen
 
-## Goal
-On level 1 ("Whispering Pines"), just before the runner reaches the first spike, freeze the game and show a card that tells the player to avoid the spikes, with one button labelled "Understood". Pressing it (or Enter) resumes the run from exactly where it froze, with the music and the clock still in sync.
+You're working in the `hiyroscript/shkr` repo (Shadow Skirr, a rhythm runner in plain HTML/CSS/JS with no build step for the dev build). There are two changes. Keep the diff small and match the code style already in the files (compact one-line CSS rules, `function` declarations, `$`/`$$` helpers).
 
-## Relevant code (read these first)
-- js/levels.js: LEVELS[0] is level 1. The chart is phrases of cells (each char = half a beat, 8 cells a bar) assembled by `form`. The first spike is the "^" in phrase `a` ("^...'.'."). The form starts "0ij 1abc…", so it is the first cell of bar 3 (cell 16).
-- js/sim.js `compile(def)`: turns the chart into `L`. Cell i sits at world x = 2*i. A "^" makes a box with `v: "sp"` at cx = x + off (off = offAt(x), normally 2). "M" and "I" also make `v: "sp"` boxes. Units: DX = 4/TPB per tick, 4 units per beat, TPB = 96.
-- js/game.js:
-  - `G` holds mode ("intro", "play", "dead", "won", …), `paused`, `beat`, `st` (sim state, `st.tick`) and `L`.
-  - `showCard({eyebrow, title, body?, acts:[{t, solid, fn}]})` / `hideCard(fade)` give the existing card UI. `G.cardUp` makes Enter run the first action.
-  - `pauseGame()` / `resumeGame()` show how to freeze correctly: `MUSIC.suspend()`, record `G.pauseT`, and on resume `MUSIC.resume()` and then shift `clock.t0p += now() - G.pauseT; clock.off = null`. Without that shift, the main loop's catch-up guard (`target - st.tick > TPB * 1.5` → `pauseGame()`) fires as soon as the game resumes.
-  - `beginRun(first)`: on level 1's first start, the Bloom new-hazard card shows first (G.mode = "intro"), then `startRun()` begins play. The spike tip has to come after that, during play.
-  - `loop()`: steps the sim while `G.mode === "play" && !G.paused`.
+Read these first: `index.html` (the `#splash` and `#home` sections), `css/style.css` (the `/* splash */` block, the `.pulse` rules under `/* home */`, `#home .pulse i`, the `@media (max-height:430px)` and `@media (prefers-reduced-motion:reduce)` blocks), `js/game.js` (`G`, `SCREENS`, `show()`, `paintHome()`, `startHome()`, `launch()`, `audioGesture()`, the main `loop()` and the `/* boot */` block near the end), and `README.md`.
 
-## Implementation
-1. **Find the trigger point from the data, not a hard-coded number.** When level 1 loads (in `startLevel`, or lazily), find the first spike box: the `v: "sp"` object in `G.L.objs` (check the field name in compile) with the smallest x0. Set the trigger at about 1 beat before it (x0 - 4 world units), and convert that to a tick: `Math.floor(trigX / DX)`. Make it a small config, e.g. `const TIPS = { 1: { find: "sp", lead: 1 /* beats */, title: "Watch out", body: "Avoid the spikes. Jump over them with Space / ↑ / W, a left click or a tap on the right half." } }`. That way other levels can get tips later, and changing the chart won't break this one.
-2. **Freeze.** In `loop()`, inside the play branch's stepping `while`, stop stepping once `st.tick` reaches the trigger tick. Do this when a tip is due for this level, it hasn't been acknowledged yet, and the runner is alive. Then call a new `showTip(tip)`, which:
-   - sets a new flag `G.tip = true` and `G.paused = true` (so the loop stops advancing and the renderer gets dt 0), records `G.pauseT = now()`, calls `MUSIC.suspend()` and clears the held input (`keys.j = keys.s = keys.qj = keys.qs = false`, plus pointer state);
-   - calls `showCard({ eyebrow: "level 01 · tip", title: tip.title, body: tip.body, acts: [{ t: "Understood", solid: true, fn: dismissTip }] })`. If showCard has no body field, add one, styled like the hazard card's text (see `hazardCard`).
-3. **Resume.** `dismissTip()` does `hideCard(true)`, clears the input again, marks the tip as acknowledged and sets `G.tip = false`. It then resumes like `resumeGame()`: `MUSIC.resume()`, and once that resolves, shift `clock.t0p` by the frozen time, set `clock.off = null` and `G.paused = false`. Factor the shared resume code out of resumeGame instead of copying it.
-4. **Keep the tip out of the other pause paths.**
-   - Esc: while `G.tip`, Esc must not open or close the pause card. Either ignore it or treat it as "Understood". Update the Escape branch in the keydown handler.
-   - `visibilitychange` / `blur`: `pauseGame()` returns early when `G.paused` is already true, which is right. Check that coming back to the tab doesn't un-pause the game while the tip is still up: the `else if (!G.paused)` branch should already hold. Test it.
-   - The pause button: no effect while the tip is showing.
-   - Canvas pointerdown already ignores input when `G.paused`. Make sure the click on "Understood" doesn't also queue a jump on the next frame.
-5. **When it shows.** Show it once per level-1 visit until acknowledged: if the player dies before reaching the spike, it shows again on the retry. Once they press "Understood", don't show it again. Store this in the saved state `S` (e.g. `S.tips = { 1: true }`). Add the field to `checkState` with a safe default, so old saves still load and `setS` validates it. Settings' "Objective tips" switch (`S.objective`) should also control this tip: when it's off, skip the tip. Developer reset (Settings → developer section in js/dev.js) and "reset progress" should clear `S.tips`.
-6. **Leave alone:** the attract demo (`G.mode === "home"/"launch"`), the hazard preview canvases, How to play demos, `G.bot` runs and tools/ (parity-check.js, check-levels.js, difficulty.js). None of these should ever show or wait for the tip. The sim itself (js/sim.js) must not change, so level beatability and parity checks stay the same.
-7. **Docs:** add a line to README.md's Features list next to the "Objective box" and "New hazard cards" items, describing the level-1 spike tip, and update the Settings description of "Objective tips" if its wording changes.
+---
 
-## Acceptance checks
-- Fresh save → level 1 → Bloom card → "Understood" → the run plays and freezes about one beat before the first spike, with the runner still visible on screen, the music silent and the card showing "Understood".
-- "Understood" or Enter → the run continues from the same spot, with the music on the beat and no auto-pause or jump in position. Jumping on the next beat clears the spike.
-- Die later in the level → no tip on the retry. Clear localStorage → the tip shows again.
-- Turn Objective tips off → no tip.
-- Esc, switching tabs or blurring the window while the tip is up never leaves the game stuck or shows two cards.
-- `node tools/check-levels.js` and `node tools/parity-check.js` still pass.
+## 1. Add a play icon in the centre of the black pulse button
+
+**Now:** the home screen's start button is
+```html
+<button class="pulse" id="startOrb" aria-label="Play"><i></i><b></b></button>
+```
+- `.pulse i` is the solid black disc (`background:var(--ink)`) that "breathes" (`animation:breathe 1.6s`, scale .86 ↔ 1). On home it also gets a white ring: `#home .pulse i{box-shadow:0 0 0 4px #fff}`.
+- `.pulse b` is the expanding halo ring (`animation:halo 1.6s`).
+- `.pulse` is `display:grid;place-items:center`, sized `clamp(64px,12vh,96px)` (56px under `max-height:430px`).
+- When the selected level is locked, `paintHome()` adds `.locked`: the disc turns grey (`--paper-3`), stops animating, the halo hides, and `::before`/`::after` draw a padlock.
+
+The disc is plain black with nothing on it, so it doesn't read as "play".
+
+**Do:**
+- Draw a **white, right-pointing play triangle** centred on the black disc.
+  - Add it as a new child element in the markup, e.g. `<button class="pulse" id="startOrb" aria-label="Play"><i></i><b></b><u aria-hidden="true"></u></button>` (any spare inline tag or a `<span class="play-ico">` is fine). **Don't use `::before`/`::after` on `.pulse`** — those pseudo-elements are already taken by the padlock in `.pulse.locked`.
+  - Pure CSS, no SVG file, no icon font, no new JS. A CSS triangle is enough, for example: `width:0;height:0;border-style:solid;border-width:<h/2> 0 <h/2> <w>;border-color:transparent transparent transparent #fff`, or a `clip-path:polygon(0 0,100% 50%,0 100%)` box with `background:#fff`. Pick one.
+  - **Size:** relative to the button so it scales with the `clamp()` and with the 56px small-height size — roughly 30–34% of the button's width tall, an equilateral-ish triangle. Use `%` / `em` or `calc()` off the button size, not a fixed pixel size.
+  - **Optical centre:** a play triangle looks off-centre when its bounding box is centred. Nudge it right by about 6–8% of its own width (e.g. `transform:translateX(8%)` or a small `margin-left`) so it looks centred on the disc.
+  - **Layering:** it must sit above the disc (`<i>`) and the halo (`<b>`): `position:relative;z-index:1` (the button is a grid with `place-items:center`, so it centres itself). `pointer-events:none` so clicks still hit the button.
+  - **Motion:** the icon should **breathe with the disc** so it never looks detached when the disc shrinks to .86. Easiest: reuse the existing `breathe` keyframes on the icon too (`animation:breathe 1.6s ease-in-out infinite`), keeping the same timing so they stay in phase. If you nudge it with `transform`, don't let the animation's `transform` wipe out the nudge — use `margin-left` for the nudge instead, or a wrapper.
+- **Locked state:** when `.pulse.locked`, **hide the play icon** (`display:none`) so only the existing padlock shows. Don't change the padlock.
+- **Reduced motion:** add the icon to the existing rule so it stops too: `.pulse i,.pulse b,<icon selector>{animation:none}`. With motion off the disc rests at its unanimated size, so check the icon still looks centred and in proportion.
+- **Press feedback:** `.pulse:active{transform:scale(.92)}` scales the whole button, so the icon shrinks with it automatically. Don't add anything for that.
+- Keep `aria-label="Play"` on the button. The icon is decorative (`aria-hidden="true"`).
+- Don't change the button's size, the disc colour, the white ring, the halo, or `#startLbl` ("play" / "replay · N tries" / "locked") underneath.
+
+---
+
+## 2. Remove the splash screen
+
+**Now:** on load a full black screen shows the title "SHADOW SKIRR" letter by letter and the credit "a game by hiyroscript", then fades out after 1.9 s (or on tap) and goes to home. The pieces:
+- `index.html`:
+  ```html
+  <section id="splash" class="screen on">
+    <div class="mid"><h1 class="splash-title" id="splashTitle"></h1></div>
+    <p class="credit">a game by hiyroscript</p>
+  </section>
+  ```
+- `css/style.css`, the whole `/* splash */` block: `#splash{…}`, `#splash .mid{…}`, `.splash-title{…}`, `.splash-title span,.title span{…letterIn…}`, `#splash .credit{…}`, `@keyframes creditIn`, `#splash.out{…}`, `@keyframes splashOut`.
+- `js/game.js`:
+  - `const G = { mode: "splash", … }`
+  - `const SCREENS = ["splash", "home", "howto", "settings", "levels"]`
+  - in `show()`: `if (el && id !== "splash") { … add("enter") }`
+  - in `loop()`: `if (G.mode === "splash" || !G.st || !G.L) return;`
+  - in the boot block:
+    ```js
+    setLetters($("#splashTitle"), "SHADOW SKIRR");
+    let splashDone = false;
+    function leaveSplash() {
+      if (splashDone) return; splashDone = true;
+      $("#splash").classList.add("out");
+      startHome();
+      setTimeout(function () { show("home"); }, 440);
+    }
+    setTimeout(leaveSplash, 1900);
+    $("#splash").addEventListener("pointerdown", function () { audioGesture(); leaveSplash(); });
+    ```
+
+**Do:**
+- Delete the `#splash` section from `index.html`.
+- Delete the splash-only CSS: `#splash`, `#splash .mid`, `.splash-title`, `#splash .credit`, `@keyframes creditIn`, `#splash.out`, `@keyframes splashOut`. **Careful:** `.splash-title span,.title span{display:inline-block;animation:letterIn …}` is shared — the home level title (`#title`) uses `.title span` for its letter-in animation. Keep that rule as `.title span{…}` and keep `@keyframes letterIn`.
+- In `js/game.js`:
+  - Remove `"splash"` from `SCREENS`.
+  - Start `G.mode` as something that isn't `"splash"` — `"home"` is fine because `startHome()` sets it anyway — and drop the `G.mode === "splash"` check from `loop()` (keep the `!G.st || !G.L` part).
+  - Simplify `show()`'s `id !== "splash"` condition to just `if (el)`.
+  - Replace the whole splash boot block with a direct start: call `startHome()` and `show("home")` once, at the same point in boot (after `RENDER.resize(cv)` and the resize listeners, before `requestAnimationFrame(loop)`). Remove `setLetters($("#splashTitle"), …)`, `splashDone`, `leaveSplash`, the 1900 ms timer and the splash `pointerdown` listener.
+  - Search the whole repo afterwards (`grep -rni splash`) and remove every leftover reference: JS, CSS, HTML, `js/dev.js`, `js/dev-config.js`, `js/fixes.js`, `tools/*`, the workflow. Nothing should mention `splash` when you're done (except git history).
+- **Home must appear immediately on load**, with its normal `.enter` fade-up, the animated backdrop running, and the level title letters animating in.
+- **Audio:** the splash tap used to be the user gesture that unlocked audio. That's no longer needed as a separate step: `audioGesture()` is already registered on `document` for `pointerdown` and `keydown` (capture), and when audio first turns on while `G.mode === "home"` it calls `startHome()` again to start the home music. Make sure that still works: load the page, music is silent (browser autoplay policy), the first tap or key anywhere starts the home music, and the first click on the play button both unlocks audio and launches the level (the wipe animation plays and the level music starts). Make sure the first gesture doesn't start the home song twice or restart the attract demo with a visible jump.
+- **Keep the credit text off-screen?** The splash was the only place showing "a game by hiyroscript". The home header already shows `hiyroscript`, so don't add the credit anywhere else. Leave `<title>` and the meta description unchanged.
+- In `README.md`, update anything that mentions the splash/intro screen or the boot sequence (if nothing mentions it, leave the README alone).
+
+---
+
+## 3. Don't break anything
+- Don't change level charts, `SIM`, the renderer, music, or difficulty numbers.
+- Run `node tools/parity-check.js`, `node tools/check-levels.js` and `bash tools/build-release.sh`; all must pass, same as the **Build release** workflow (`.github/workflows/build.yml`). If the build script or parity check lists files/ids and `splash` was in them, update them.
+- Nothing new may mention `SHKR_DEV` outside the place the build script allows.
+
+## 4. Check before you finish
+Open `index.html` in a browser (desktop width and ~360×740 phone size, plus a short landscape ~740×360 to hit the `max-height:430px` rule) and confirm:
+1. The page opens **straight onto home** — no black screen, no flash of a splash, no console errors.
+2. The black pulse has a **white play triangle**, optically centred, breathing in sync with the disc, visible against every home backdrop theme (use ←/→ to step through levels).
+3. On a **locked** level the triangle is gone and only the padlock shows; on an unlocked level it comes back.
+4. With `prefers-reduced-motion: reduce` (DevTools → Rendering), disc and triangle are both still, and the triangle is still centred.
+5. Clicking the play button launches the level with the wipe and music; the first-ever gesture unlocks audio correctly.
+6. The level title on home still animates in letter by letter.
+
+In your summary, list the files you changed, and include a screenshot (or describe) the button in its normal, locked and small-height states.
