@@ -1121,9 +1121,20 @@ const RENDER = (function make(fit) {
       else { g.beginPath(); g.arc(0, 0, p.sz * k + .01, 0, TAU); g.fillStyle = p.col; g.fill(); }
       g.restore();
     }
+    /* a level tip's marker (game.js): a red ring around one object, x / y its centre and r its radius in world units,
+       breathing slowly on the real clock (it is drawn while the game is frozen), still with reduced motion */
+    if (V.mark) {
+      const m = V.mark, r = m.r * (RM ? 1 : 1 + .07 * Math.sin(V.time * 5));
+      at(m.x, m.y, m.flip, m.fb);
+      g.beginPath(); g.arc(0, 0, r, 0, TAU); g.lineWidth = 7 / sc; g.strokeStyle = "rgba(255,255,255,.75)"; g.stroke();
+      g.lineWidth = 4 / sc; g.strokeStyle = "#E8112D"; g.stroke();
+      g.restore();
+    }
     if (V.flash > 0) { g.fillStyle = "rgba(0,0,0," + (V.flash * .12) + ")"; g.fillRect(-20, -20, W + 40, H + 40); }
   }
   return { resize: resize, setLevel: setLevel, frame: frame, emit: emit, ring: ring, burst: burst, shake: addShake, cue: cue, COL: COL,
+    /* world point -> CSS pixels on the canvas, with the camera of the last frame (flip / fb as for at()) */
+    point: function (x, y, flip, fb) { return { x: X(x), y: flip ? Y(2 * fb + CH - y) : Y(y) }; },
     setHome: function (v) { if (home !== v) { home = v; if (cv) resize(); } }, get W() { return W; }, get H() { return H; }, setQuality: function (q) { quality = q; },
     create: function (f) { return make(f); } };
 })();

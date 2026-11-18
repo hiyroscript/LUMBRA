@@ -80,7 +80,7 @@
   };
 
   const G = { mode: "splash", paused: false, n: 1, def: null, L: null, song: null, st: null, tryN: 1, session: 0, beat: 0, beat0: 0, spb: 0.5,
-    deadAt: 0, wonAt: 0, squash: 0, restY: 0, snap: true, cardUp: false, pauseT: 0, tip: false };
+    deadAt: 0, wonAt: 0, squash: 0, restY: 0, snap: true, cardUp: false, pauseT: 0, tip: false, mark: null };
   const keys = { j: false, s: false, qj: false, qs: false };
 
   /* ---------------- screens ---------------- */
@@ -177,7 +177,7 @@
   $("#nextBtn").addEventListener("click", function () { browse(1); });
   function homeTheme() { const n = Math.min(S.sel, S.unlocked); return LEVELS[n - 1]; }
   function startHome() {
-    G.mode = "home"; G.paused = false; G.tip = false; $("#hud").classList.remove("on"); hideObjective();
+    G.mode = "home"; G.paused = false; G.tip = false; G.mark = null; tipEl.classList.remove("show"); $("#hud").classList.remove("on"); hideObjective();
     const def = homeTheme();
     G.L = demoL; G.spb = 60 / HOME.mu[0]; G.st = SIM.newState(); G.st.ev = []; G.beat0 = 0; G.squash = 0; G.restY = 0; G.snap = true;
     RENDER.setHome(true); RENDER.setLevel(demoL, def.th, def.n * 101);
@@ -488,7 +488,7 @@
   function beginRun(first) {
     const r = rec(G.n);
     if (!r.d) { r.t++; saveState(); G.tryN = r.t; } else { G.session++; G.tryN = G.session; }
-    G.st = SIM.newState(); G.st.ev = []; G.paused = false; G.tip = false; G.squash = 0; G.restY = 0; G.snap = true; G.beat0 = 0;
+    G.st = SIM.newState(); G.st.ev = []; G.paused = false; G.tip = false; G.mark = null; G.squash = 0; G.restY = 0; G.snap = true; G.beat0 = 0;
     keys.qj = keys.qs = false;
     RENDER.setLevel(G.L, G.def.th, G.n * 101);
     paintHud(); hudFill.style.transform = "scaleX(0)";
@@ -567,39 +567,66 @@
 
   /* ---------------- level tips ----------------
      A one-time tip in the middle of a level's run: just before the runner reaches the first object of a kind
-     (find: the compiled object's v, e.g. "sp" for spikes), the game freezes like a pause, behind a card with one
-     button. "Understood" (Enter, Esc) picks the run up from the same tick, in time with the music, and the tip
-     never comes back (S.tips). Until then it shows on every run of the level that gets that far. The Objective tips
-     setting turns tips off too. Only real play: the home demo, previews and bot runs never stop for one, and the
-     sim doesn't know about tips at all. lead: how many beats before the object's left edge the game freezes. */
+     (find: the compiled object's v, e.g. "sp" for spikes), the game freezes like a pause. There is no card: the
+     object gets a red ring on the canvas (RENDER.frame's V.mark) and a note next to it says what to do, with a
+     countdown (TIP_SECS). At zero the run picks up from the same tick, in time with the music, and the tip never
+     comes back (S.tips). Until then it shows on every run of the level that gets that far. The countdown only runs
+     while the window has focus (the loop doesn't run at all in a hidden tab). The Objective tips setting turns tips
+     off too. Only real play: the home demo, previews and bot runs never stop for one, and the sim doesn't know about
+     tips at all. lead: how many beats before the object's left edge the game freezes. */
+  const TIP_SECS = 5;
   const TIPS = {
-    1: { find: "sp", lead: 1, title: "Watch out",
-      body: TOUCH ? "Avoid the spikes. Tap the right side of the screen to jump over them." : "Avoid the spikes. Jump over them with Space, ↑ or W, or a left click." }
+    1: { find: "sp", lead: 1, title: "Avoid the spikes",
+      body: TOUCH ? "Tap the right side of the screen to jump over them" : "Jump over them: space, ↑, w or click" }
   };
-  /* the tick where level n's tip freezes the game, found in the compiled level so a chart change can't break it; -1: none */
-  const tipTicks = {};
-  function tipTick(n) {
-    if (tipTicks[n] !== undefined) return tipTicks[n];
-    const tip = TIPS[n]; let t = -1;
-    if (tip) for (const o of getL(n).objs) if (o.v === tip.find) { t = Math.max(0, Math.floor((o.x0 - tip.lead * SIM.UPB) / DX)); break; }   /* objs are sorted by x0 */
-    return (tipTicks[n] = t);
+  /* level n's tip object (the first one of its kind by x0, objs are sorted) and the tick where the game freezes;
+     found in the compiled level, so a chart change can't break it. null: none */
+  const tipAt = {};
+  function tipSpot(n) {
+    if (tipAt[n] !== undefined) return tipAt[n];
+    const tip = TIPS[n]; let r = null;
+    if (tip) for (const o of getL(n).objs) if (o.v === tip.find) { r = { o: o, tick: Math.max(0, Math.floor((o.x0 - tip.lead * SIM.UPB) / DX)) }; break; }
+    return (tipAt[n] = r);
   }
   function tipDue(st) {
     if (G.tip || G.bot || G.mode !== "play" || st.dead || !S.objective || !TIPS[G.n] || S.tips[G.n]) return false;
-    const t = tipTick(G.n);
-    return t >= 0 && st.tick >= t;
+    const p = tipSpot(G.n);
+    return !!p && st.tick >= p.tick;
   }
+  const tipEl = $("#tipNote"), tipNum = $("#tipNum"), tipArc = $("#tipArc");
+  let tipLeft = 0, winFocus = true;
+  window.addEventListener("focus", function () { winFocus = true; });
+  window.addEventListener("blur", function () { winFocus = false; });
   function dropInput() { keys.j = keys.s = keys.qj = keys.qs = false; for (const id in ptr) delete ptr[id]; }
   function showTip() {
-    const tip = TIPS[G.n];
+    const tip = TIPS[G.n], o = tipSpot(G.n).o;
     G.tip = true; G.paused = true; G.pauseT = now(); MUSIC.suspend(); dropInput();
     hideObjective();
-    showCard({ eyebrow: "level " + pad2(G.n) + "  ·  tip", title: tip.title, body: tip.body,
-      acts: [{ t: "Understood", solid: true, fn: dismissTip }] });
+    /* the ring: round the object's box, with some air */
+    G.mark = { x: o.x, y: (o.y0 + o.y1) / 2, r: Math.max(o.x1 - o.x0, o.y1 - o.y0) / 2 + .55, flip: o.flip, fb: o.fb || 0 };
+    $("#tipTitle").textContent = tip.title; $("#tipBody").textContent = tip.body;
+    tipLeft = TIP_SECS; paintTip();
+    tipEl.classList.add("show");
   }
-  function dismissTip() {
+  /* the note sits above the ring (below it if there is no room), kept on screen; the countdown number and its draining ring */
+  function paintTip() {
+    tipNum.textContent = Math.max(1, Math.ceil(tipLeft));
+    tipArc.style.strokeDashoffset = (100 * (1 - tipLeft / TIP_SECS)).toFixed(2);
+    const m = G.mark, c = RENDER.point(m.x, m.y, m.flip, m.fb), rp = RENDER.point(m.x + m.r, m.y, false, 0).x - c.x;
+    const w = tipEl.offsetWidth, h = tipEl.offsetHeight, W = window.innerWidth, gap = 14, edge = 12;
+    let top = c.y - rp - gap - h; if (top < 70) top = c.y + rp + gap;
+    tipEl.style.left = Math.round(Math.max(edge, Math.min(W - w - edge, c.x - w / 2))) + "px";
+    tipEl.style.top = Math.round(top) + "px";
+  }
+  /* from the main loop while the tip is up: count down (only with focus), then go on */
+  function tickTip(dt) {
+    if (winFocus) tipLeft -= dt;
+    if (tipLeft > 0) { paintTip(); return; }
+    endTip();
+  }
+  function endTip() {
     if (!G.tip) return;
-    hideCard(true); dropInput();
+    tipEl.classList.remove("show"); G.mark = null; dropInput();
     S.tips[G.n] = true; saveState();
     G.tip = false; unfreeze();
   }
@@ -641,8 +668,9 @@
   document.addEventListener("keydown", audioGesture, { capture: true });
   window.addEventListener("keydown", function (e) {
     const c = e.code;
-    /* Esc: pause / resume in a run (on a level tip, the same as "Understood"); on a panel (How to play, Settings, Levels) with no card open, back home */
-    if (c === "Escape") { if (G.tip) dismissTip(); else if (G.mode === "play" && !G.paused) pauseGame(); else if (G.paused && !thawing) resumeGame(); else if (!G.cardUp && panelOn()) show("home"); return; }
+    /* Esc: pause / resume in a run (nothing while a level tip counts down); on a panel (How to play, Settings, Levels) with no card open, back home */
+    if (G.tip) return;   /* a level tip counting down: no keys at all, so nothing is queued for when it goes */
+    if (c === "Escape") { if (G.mode === "play" && !G.paused) pauseGame(); else if (G.paused && !thawing) resumeGame(); else if (!G.cardUp && panelOn()) show("home"); return; }
     if (c === "Space" && e.target === obChk) return;   /* the keyboard is on "Don't show again": Space ticks it */
     if (G.cardUp) { if (c === "Enter" && cardActs[0]) { e.preventDefault(); cardActs[0].fn(); } return; }
     if (G.mode === "play") {
@@ -712,8 +740,9 @@
     let thermal = false; for (const z of L.zones) if (z.k === "T" && x >= z.x0 && x < z.x1) thermal = true;
     const bf = G.beat - Math.floor(G.beat), pulse = G.beat < 0 || dead ? 0 : Math.pow(Math.max(0, 1 - bf * 2.3), 2);
     RENDER.frame({ s: st, x: x, y: y, beat: G.beat, time: t, pulse: pulse, dead: dead, squash: G.squash, restY: G.restY, snap: G.snap, thermal: thermal,
-      demo: G.mode === "home" || G.mode === "launch", noShake: !S.shake }, G.paused || G.mode === "intro" ? 0 : dt);
+      demo: G.mode === "home" || G.mode === "launch", noShake: !S.shake, mark: G.mark }, G.paused || G.mode === "intro" ? 0 : dt);
     G.snap = false;
+    if (G.tip) tickTip(dt);
     if (G.mode === "play" || dead || G.mode === "won") hudFill.style.transform = "scaleX(" + Math.max(0, Math.min(1, x / L.endX)).toFixed(4) + ")";
     /* drop resolution once if the device cannot hold 60 fps */
     if (G.mode === "play" && !G.paused && !lowQ) { slow = dt > 0.024 ? slow + 1 : Math.max(0, slow - 0.25); if (slow > 70) { lowQ = true; RENDER.setQuality(0.72); RENDER.resize(); } }
