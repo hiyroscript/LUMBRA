@@ -18,7 +18,7 @@
   function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
 
   const CSS =
-    "#home .tag.shkr-dev-badge{background:var(--ink);color:#fff;flex:0 0 auto;margin-right:auto;font-weight:700}" +
+    "#home .tag.shkr-dev-badge{background:var(--ink);color:#fff;padding:6px 11px;border-radius:100px;flex:0 0 auto;margin-right:auto;font-weight:700}" +
     ".shkr-dev{margin-top:28px}" +
     ".shkr-dev-head{display:flex;align-items:baseline;justify-content:space-between;gap:6px 14px;flex-wrap:wrap;" +
       "padding-bottom:10px;border-bottom:1px solid var(--line)}" +
@@ -50,10 +50,10 @@
       try { const o = JSON.parse(str); return o && typeof o === "object" && o.rec && typeof o.rec === "object" ? o : null; } catch (e) { return null; }
     }
     function snapshot() { lsSet(SNAP_KEY, JSON.stringify(current())); }
-    /* replace unlocked / sel / rec, keep the settings (music, shake, objective tips), then repaint the way the normal reset does */
+    /* replace unlocked / sel / rec, keep the settings (music, sound effects, shake, objective tips), then repaint the way the normal reset does */
     function apply(p, goHome) {
       const S = api.S();
-      api.setS({ music: S.music, shake: S.shake, objective: S.objective, sel: p.sel, unlocked: p.unlocked, rec: p.rec });
+      api.setS({ music: S.music, sfx: S.sfx, shake: S.shake, objective: S.objective, sel: p.sel, unlocked: p.unlocked, rec: p.rec });
       api.saveState(); api.paintHome(false); api.paintLevels();
       if (goHome) { api.show("home"); api.startHome(); }
       paintPanel();
