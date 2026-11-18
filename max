@@ -1,216 +1,37 @@
-# Task: Shadow Skirr (hiyroscript/shkr): home brand text, death sound + setting, and a "How to play" screen
+In the hiyroscript/shkr repo (Shadow Skirr, a vanilla-JS rhythm runner, no build step), add a one-time "avoid the spikes" tip to level 1.
 
-You're working in the `hiyroscript/shkr` repo (Shadow Skirr, a rhythm runner in plain HTML/CSS/JS, with no build step for the dev build). There are three changes. Each one copies a pattern from a sister game, `hiyroscript/vl` (MALIK). **You don't have access to that repo**, so everything you need from it is copied out below, word for word. Where this prompt gives exact values, use exactly those values.
+## Goal
+On level 1 ("Whispering Pines"), just before the runner reaches the first spike, freeze the game and show a card that tells the player to avoid the spikes, with one button labelled "Understood". Pressing it (or Enter) resumes the run from exactly where it froze, with the music and the clock still in sync.
 
-Read these first: `index.html`, `css/style.css`, `js/game.js` (especially `show()`, the settings block around `#volRange`/`#shakeSw`/`#objSw`, `INTRO`, `preview()`, `onEvents()` and its `case "die"`, `audioGesture()` and the keydown handler), `js/music.js` (the returned API at the bottom: `ctx`, `setVol`, `stop`, `resume`), `js/levels.js` (`HAZ`, `OBST`), `js/sim.js` (chart characters), `tools/build-release.sh`, `tools/parity-check.js` and `README.md`.
+## Relevant code (read these first)
+- js/levels.js: LEVELS[0] is level 1. The chart is phrases of cells (each char = half a beat, 8 cells a bar) assembled by `form`. The first spike is the "^" in phrase `a` ("^...'.'."). The form starts "0ij 1abc…", so it is the first cell of bar 3 (cell 16).
+- js/sim.js `compile(def)`: turns the chart into `L`. Cell i sits at world x = 2*i. A "^" makes a box with `v: "sp"` at cx = x + off (off = offAt(x), normally 2). "M" and "I" also make `v: "sp"` boxes. Units: DX = 4/TPB per tick, 4 units per beat, TPB = 96.
+- js/game.js:
+  - `G` holds mode ("intro", "play", "dead", "won", …), `paused`, `beat`, `st` (sim state, `st.tick`) and `L`.
+  - `showCard({eyebrow, title, body?, acts:[{t, solid, fn}]})` / `hideCard(fade)` give the existing card UI. `G.cardUp` makes Enter run the first action.
+  - `pauseGame()` / `resumeGame()` show how to freeze correctly: `MUSIC.suspend()`, record `G.pauseT`, and on resume `MUSIC.resume()` and then shift `clock.t0p += now() - G.pauseT; clock.off = null`. Without that shift, the main loop's catch-up guard (`target - st.tick > TPB * 1.5` → `pauseGame()`) fires as soon as the game resumes.
+  - `beginRun(first)`: on level 1's first start, the Bloom new-hazard card shows first (G.mode = "intro"), then `startRun()` begins play. The spike tip has to come after that, during play.
+  - `loop()`: steps the sim while `G.mode === "play" && !G.paused`.
 
----
+## Implementation
+1. **Find the trigger point from the data, not a hard-coded number.** When level 1 loads (in `startLevel`, or lazily), find the first spike box: the `v: "sp"` object in `G.L.objs` (check the field name in compile) with the smallest x0. Set the trigger at about 1 beat before it (x0 - 4 world units), and convert that to a tick: `Math.floor(trigX / DX)`. Make it a small config, e.g. `const TIPS = { 1: { find: "sp", lead: 1 /* beats */, title: "Watch out", body: "Avoid the spikes. Jump over them with Space / ↑ / W, a left click or a tap on the right half." } }`. That way other levels can get tips later, and changing the chart won't break this one.
+2. **Freeze.** In `loop()`, inside the play branch's stepping `while`, stop stepping once `st.tick` reaches the trigger tick. Do this when a tip is due for this level, it hasn't been acknowledged yet, and the runner is alive. Then call a new `showTip(tip)`, which:
+   - sets a new flag `G.tip = true` and `G.paused = true` (so the loop stops advancing and the renderer gets dt 0), records `G.pauseT = now()`, calls `MUSIC.suspend()` and clears the held input (`keys.j = keys.s = keys.qj = keys.qs = false`, plus pointer state);
+   - calls `showCard({ eyebrow: "level 01 · tip", title: tip.title, body: tip.body, acts: [{ t: "Understood", solid: true, fn: dismissTip }] })`. If showCard has no body field, add one, styled like the hazard card's text (see `hazardCard`).
+3. **Resume.** `dismissTip()` does `hideCard(true)`, clears the input again, marks the tip as acknowledged and sets `G.tip = false`. It then resumes like `resumeGame()`: `MUSIC.resume()`, and once that resolves, shift `clock.t0p` by the frozen time, set `clock.off = null` and `G.paused = false`. Factor the shared resume code out of resumeGame instead of copying it.
+4. **Keep the tip out of the other pause paths.**
+   - Esc: while `G.tip`, Esc must not open or close the pause card. Either ignore it or treat it as "Understood". Update the Escape branch in the keydown handler.
+   - `visibilitychange` / `blur`: `pauseGame()` returns early when `G.paused` is already true, which is right. Check that coming back to the tab doesn't un-pause the game while the tip is still up: the `else if (!G.paused)` branch should already hold. Test it.
+   - The pause button: no effect while the tip is showing.
+   - Canvas pointerdown already ignores input when `G.paused`. Make sure the click on "Understood" doesn't also queue a jump on the next frame.
+5. **When it shows.** Show it once per level-1 visit until acknowledged: if the player dies before reaching the spike, it shows again on the retry. Once they press "Understood", don't show it again. Store this in the saved state `S` (e.g. `S.tips = { 1: true }`). Add the field to `checkState` with a safe default, so old saves still load and `setS` validates it. Settings' "Objective tips" switch (`S.objective`) should also control this tip: when it's off, skip the tip. Developer reset (Settings → developer section in js/dev.js) and "reset progress" should clear `S.tips`.
+6. **Leave alone:** the attract demo (`G.mode === "home"/"launch"`), the hazard preview canvases, How to play demos, `G.bot` runs and tools/ (parity-check.js, check-levels.js, difficulty.js). None of these should ever show or wait for the tip. The sim itself (js/sim.js) must not change, so level beatability and parity checks stay the same.
+7. **Docs:** add a line to README.md's Features list next to the "Objective box" and "New hazard cards" items, describing the level-1 spike tip, and update the Settings description of "Objective tips" if its wording changes.
 
-## 1. Home screen: swap the "shadow skirr · hiyroscript" box for vl's plain "hiyroscript" text
-
-**Now:** the top-left of the home header has
-```html
-<span class="tag">shadow skirr &nbsp;·&nbsp; hiyroscript</span>
-```
-and `css/style.css` turns it into a white pill box with `#home .tag{background:#fff;padding:6px 11px;border-radius:100px;color:var(--dim)}`.
-
-**In vl** the same spot holds the single word `hiyroscript` as plain text. There's no box, background, padding or border radius. This is its exact markup:
-```html
-<header class="bar">
-  <span class="tag">hiyroscript</span>
-  <nav>
-    <button class="chip" data-go="howto">how to play</button>
-    <button class="chip" data-go="settings">settings</button>
-  </nav>
-</header>
-```
-And this is vl's exact style for it. It is the shared `.tag` rule with nothing added:
-```css
-.tag{font-family:var(--mono);              /* "JetBrains Mono", ui-monospace, … */
-  font-size:clamp(9px,2.4vw,11px);letter-spacing:.18em;text-transform:uppercase;
-  color:var(--faint);                       /* #6D7684 */
-  white-space:nowrap}
-```
-It renders as `HIYROSCRIPT` in small, widely spaced, grey uppercase mono text.
-
-**Do:**
-- Replace the span's text with `hiyroscript`, so the markup is exactly `<span class="tag">hiyroscript</span>`.
-- Make **only this header tag** plain. Leave the other home tags alone (`#lvTag`, `#startLbl`, `#progTag`) and keep their white pills. Narrow the `#home .tag` rule so it skips the header tag, or add `#home header .tag{background:none;padding:0;border-radius:0;color:var(--faint)}`. The finished header tag must compute to the `.tag` values above and nothing else.
-- You can keep or drop the existing `#home header .tag{min-width:0;overflow:hidden;text-overflow:ellipsis}` rule. It has no visible effect now that the text is short.
-- Don't touch the splash credit ("a game by hiyroscript"), `<title>` or the meta description.
-- Check it against the animated home backdrop. If the plain grey text really can't be read on some level themes, **don't add a box back**. Tell me in your summary which levels it's hard to read on.
-
----
-
-## 2. Death sound effect, with an on/off switch in Settings
-
-Right now the README says the game has "no sound effects" and that the music is the only sound. That changes: there will be one sound effect, played when the runner dies.
-
-**The sound:** synthesise it with Web Audio (no audio files), the same way vl makes its "miss" sound. Here is vl's exact recipe:
-```js
-// vl helpers, on an AudioContext `ctx`, played at ctx.currentTime:
-// tone: oscillator, frequency set at t then exponentialRampToValueAtTime(f2, t+d);
-//       gain 0.0001 → peak over 6 ms (exponential), then → 0.0001 at t+d; optional lowpass BiquadFilter; stop at t+d+0.03
-// noise: buffer of white noise (0.7 s, Math.random()*2-1) → lowpass BiquadFilter whose frequency ramps f → f2 over d (Q 1)
-//        gain 0.0001 → peak over 4 ms, → 0.0001 at t+d; stop at t+d+0.03
-miss() {
-  this.tone({ f: 150, f2: 48, d: 0.34, type: "sawtooth", g: 0.24, filter: 700 });
-  this.noise({ f: 900, f2: 120, d: 0.3, g: 0.18 });
-}
-```
-vl sends its effects through a compressor (`threshold -14, ratio 6, attack 0.003`) and then a master gain of 0.9. Use that recipe as the death sound. You can make small changes so it fits Shadow Skirr, but it should stay a short (about 0.35 s), low, falling "thud and hiss".
-
-**Wiring:**
-- Use the AudioContext that already exists (`MUSIC.ctx`, created in `audioGesture()`). Don't create a second one. If `MUSIC.ctx` is null or the switch is off, do nothing.
-- Route the effect through **its own gain node to the destination**, not through the music `master`. Read `MUSIC.stop()` first. The music fades out right when you die (`MUSIC.stop(0.14)`), and the death sound must not get cut off by that fade or by the music volume slider. Add a small API to `music.js` for this (for example `MUSIC.sfx.die()`), or add a tiny `SFX` object in `game.js`. Don't add a new JS file unless you also update `index.html`, `tools/build-release.sh` and `tools/parity-check.js` so the release build and CI keep passing. Keeping it in an existing file is better. The offline render path in `music.js` (the `keep = [ctx, master, …]` swap) must still work.
-- Play it in `onEvents()` → `case "die"`, inside the existing `if (main && G.mode === "play")` guard, so it plays only for real deaths in a real run. It must not play for deaths in the home attract demo, in new-hazard previews or in the How-to-play previews (section 3).
-
-**The setting:**
-- Add `sfx: true` to `DEFAULTS`. In `checkState`, normalise it the same way `objective` is: `o.sfx = o.sfx !== false;`. That way older saves get sound effects on.
-- In `#settings`, add a new row **directly above Music**, built exactly like the Screen shake row:
-  ```html
-  <div class="set-row">
-    <div class="lbl"><b>Sound effects</b><span>A short sound when you crash.</span></div>
-    <div class="set-ctl"><button class="sw" id="sfxSw" aria-pressed="true" aria-label="Sound effects"></button></div>
-  </div>
-  ```
-- Hook it up like `#shakeSw`: clicking flips `S.sfx`, `paintSettings()` sets `aria-pressed`, and the click calls `saveState()`. "Reset progress" must keep this setting, just as it keeps the others.
-- Change the Music row's description from "The only sound in the game." to "The soundtrack of each level."
-- If the dev settings section (`js/dev.js`) lists or resets settings, include `sfx` there too.
-
----
-
-## 3. A "How to play" button and screen, copied from vl
-
-### 3a. Button
-In the home header `<nav>`, put a new chip **before** settings: `<button class="chip" data-go="howto">how to play</button>`. Both chips have to fit at narrow widths (about 320 px). `.bar nav` already wraps.
-
-### 3b. Screen markup: vl's exact structure, adapted
-vl's how-to screen (copy this structure and its ids):
-```html
-<section id="howto" class="screen paper">
-  <div class="col">
-    <div class="panel-head">
-      <h2 class="panel-title">How to play</h2>
-      <button class="chip" data-go="home">close</button>
-    </div>
-    <div class="panel-body">
-      <div class="demo-shell">
-        <canvas id="demoCv"></canvas>
-        <div>
-          <div class="demo-name" id="demoName"></div>
-          <p class="demo-desc" id="demoDesc"></p>
-        </div>
-        <div class="demo-nav">
-          <button class="chip" id="demoPrev">back</button>
-          <button class="chip solid" id="demoNext">next</button>
-          <div class="dot-row" id="demoDots"></div>
-        </div>
-      </div>
-      <div class="legend" id="legend"></div>
-      <p class="demo-desc" id="howtoFoot"></p>
-    </div>
-    <div class="scroll-cue" aria-hidden="true">▾</div>
-  </div>
-</section>
-```
-Use `class="screen paper"` so it matches shkr's Settings and Levels screens. Put it between `#home` and `#settings`, and add `"howto"` to `SCREENS` in `game.js`.
-
-### 3c. CSS: vl's exact rules (light theme values already filled in)
-```css
-.demo-shell{display:flex;flex-direction:column;gap:clamp(10px,1.8vh,16px)}
-#demoCv{width:100%;max-width:520px;aspect-ratio:1/1;max-height:min(46vh,420px);border-radius:16px;
-  background:#0E0E16;display:block;border:1px solid var(--line);margin:0 auto}
-.demo-name{font-size:clamp(19px,4.4vw,28px);font-weight:700;letter-spacing:-.02em;color:var(--fg)}
-.demo-desc{color:var(--dim);font-size:clamp(13px,2.4vw,15px);line-height:1.55;max-width:58ch}
-#demoDesc{min-height:3.1em}
-.demo-nav{display:flex;align-items:center;gap:8px}
-.dot-row{display:flex;gap:5px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
-.dot-row i{width:6px;height:6px;border-radius:50%;background:var(--line);transition:background .2s,transform .2s}
-.dot-row i.on{background:var(--fg);transform:scale(1.35)}
-.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 18px;margin:clamp(18px,3vh,26px) 0}
-.legend div{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;
-  text-transform:uppercase;color:var(--faint)}
-.legend s{width:11px;height:11px;border-radius:50%;flex:0 0 auto}
-
-/* scroll affordance (vl) */
-.panel-body{scrollbar-width:thin;scrollbar-color:var(--thumb) transparent}
-.col::after{content:"";position:absolute;left:0;right:6px;bottom:0;height:52px;pointer-events:none;z-index:1;
-  background:linear-gradient(to top,var(--bg) 12%,transparent);opacity:0;transition:opacity .22s}
-.col.more::after{opacity:1}
-.scroll-cue{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);pointer-events:none;z-index:2;
-  font-family:var(--mono);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);
-  opacity:0;transition:opacity .22s;display:flex;align-items:center;gap:6px}
-.col.more .scroll-cue{opacity:1;animation:cueBob 1.8s ease-in-out infinite}
-@keyframes cueBob{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,3px)}}
-```
-Make one change to vl's values: shkr is a side-scroller and its preview renderer is landscape (220×140), so set `#demoCv` to `aspect-ratio:11/7` instead of `1/1`. Keep everything else. Some of these rules may already exist in shkr's CSS (the stylesheet says it was "ported from hiyroscript/vl"). Reuse them instead of duplicating them. If you add the `.col::after` and `.scroll-cue` rules, scope them so they don't show up on screens that don't need them.
-
-Also port vl's scroll-cue script and call it from `show()`:
-```js
-function refreshScrollCue() {
-  $$(".screen .col").forEach(function (col) {
-    const body = col.querySelector(".panel-body");
-    if (!body) return;
-    col.classList.toggle("more", body.scrollHeight - body.scrollTop - body.clientHeight > 6);
-  });
-}
-$$(".panel-body").forEach(function (el) { el.addEventListener("scroll", refreshScrollCue, { passive: true }); });
-```
-
-### 3d. Behaviour: how vl's demo works (match it)
-- It's a carousel of pages. Each page has a live looping animation on `#demoCv`, a name (`#demoName`) and one or two plain sentences (`#demoDesc`).
-- **next** moves forward. On the **last** page its label changes to **"start over"** and it jumps back to the first page. **back** is **hidden** (`display:none`) on the first page. There is one dot per page in `#demoDots`, and the current dot gets class `on`.
-- `show("howto")` starts the animation (`Demo.start()`), and leaving the screen stops it (`Demo.stop()`, `cancelAnimationFrame`). Opening the screen always starts at the page you were last on, and that page restarts its loop.
-- Each page loops by itself (vl: every 3.2 s). In vl a "ghost pointer" acts out the input on the canvas, so the reader can see what to press. **The shkr version:** while the scripted input is held, show a small label in the bottom-centre of the canvas that says **JUMP** or **ROLL**. Use mono, about 11 px, uppercase, `rgba(237,239,242,.75)` on the dark canvas. That way the reader can see exactly when to press each one.
-- With `prefers-reduced-motion`, show the page's single still frame. `preview()` already does this through `RM` and `D.still`.
-
-**Implementation:** reuse `preview()` from `game.js`. It already plays a tiny chart through the real `SIM` with scripted inputs and draws it with a separate `RENDER.create(...)` renderer, so it looks exactly like the game. Call `preview(#demoCv, page, def)` and keep the stop function it returns. Stop it when you change pages or leave the screen, and never run two at once. Pass a level `def` that suits the page (for hazard pages use `LEVELS[h.lv - 1]`, for basics use `LEVELS[0]`) so the colours look right. You'll need a small hook for the JUMP/ROLL label. One option is an optional `onInput(v)` callback, or an overlay drawn after `R.frame`, or a DOM label over the canvas. Make sure the hazard-card preview still behaves exactly as it does now. Preview deaths must not play the death sound or shake the screen.
-
-### 3e. Pages, in this order
-
-For pages that need a new chart, write it in the same format as `INTRO` (`c: "terrain/overlay"`, 8 cells to a bar, `in: [[[fromBeat, toBeat, 1 jump | 2 roll]]]`, `to`, `still`). Look up the chart characters for spikes, bars, hanging walls, pits, steps, floating spike blocks, spiked steps, low tunnels, hurdles, crushers and blades in `js/sim.js`, `js/levels.js` and the README's "How it works". **Prove every scripted input works:** write a throwaway node check (like `tools/check-levels.js`) that runs each page's chart and inputs through `SIM` and confirms the runner reaches `to` without a `die` event. Fix the timings until all pages pass. Don't commit the throwaway script unless it's tidy.
-
-Use this text exactly (it's written to be plain and friendly, like vl's):
-
-**The basics**
-1. **Jump**: "Press jump to hop. You stay in the air for one beat, so jump with the music. Use it to clear spikes and gaps." (Chart: flat ground with one spike. Input: one jump.)
-2. **Roll**: "Hold roll to curl into a ball and slide under things. You stay down as long as something is above you." (A low bar. Input: hold roll under it.)
-3. **Dive**: "Roll while you're in the air to drop down fast. It cuts a jump short." (Jump, then roll in mid-air to land early, ideally under a bar right after a spike.)
-
-**Obstacles** (they take the colours of each level's scenery)
-4. **Spikes**: "Spikes kill you if you touch them. Jump over them. Wide and tall spikes need a well-timed jump."
-5. **Pits**: "A gap in the ground. Jump across. Falling in sends you back to the start."
-6. **Bars**: "A bar hanging just above the ground. Roll under it."
-7. **Hanging walls**: "A wall that hangs down to just above your head. Stay on the ground and don't jump."
-8. **Steps**: "The ground climbs and drops. Jump onto a step up. Running into its side will knock you out."
-9. **Floating spike blocks**: "Spikes floating at middle height. Roll under them, or jump early to clear them."
-10. **Spiked steps**: "A step with spikes on top. Jump from further back so you land past the spikes."
-11. **Low tunnels**: "A long, low roof with spikes on it. Roll and keep rolling until you're out. You can't jump inside."
-12. **Hurdles**: "A spike, then a bar right after it. Jump the spike, then roll as soon as you land."
-13. **Crushers**: "Heavy blocks that slam down and lift up with the beat. If it's down, jump over it. If it's up, stay on the ground and run under."
-14. **Rolling blades**: "Saws rolling toward you along the ground. Jump them just as they reach you."
-
-**Hazards** (each has its own colour). Use one page per entry in `HAZ`, in `HAZ` order (Bloom, Halo, Drift, Fade, Prism, Anchor, Rail, Rift, Comet, Thermal, Mimic, Glass, Coil, Flicker, Zenith). Use `h.name` as the name and **reuse `INTRO[h.k]`'s body text and chart exactly**, so the How to play screen and the new-hazard cards say the same thing. Under the name, add a small colour dot in `h.col` and the text `from level N` (a `.tag`).
-
-Every page also gets a small `.tag` eyebrow above the name: `the basics`, `obstacle` or `hazard`.
-
-### 3f. Legend and footer
-- `#legend`: this matches vl's colour legend. Add one entry per hazard, built as `<div><s style="background:COL"></s><span>NAME</span></div>`, using `HAZ` colours and names.
-- `#howtoFoot` (use exactly): "Run to the end of the level. Everything moves to the music, so the beat tells you when to act. Touch anything deadly or fall into a pit and you start the level again. Jump: Space, ↑ or W, left click, or tap the right side of the screen. Roll: ↓ or S, right click, or hold the left side of the screen."
-
-### 3g. Keyboard and input
-- The home screen's `←`/`→`/`Enter`/`Space` handlers must **not** fire while `#howto` (or Settings/Levels) is open. Check the current guard in the keydown handler.
-- On `#howto`, `←`/`→` can act as back/next (nice to have). `Esc` closes it and goes back home, if that matches how Settings behaves.
-- Taps on `#demoCv` must not start a run or go through to the game canvas.
-
----
-
-## 4. README and housekeeping
-- In the README, update the lines that say there are no sound effects ("There are no audio files and no sound effects. The music is the only sound in the game.") and the Settings feature line. Add a short "How to play" bullet under Features that describes the screen.
-- Don't change level charts, `SIM` behaviour or the difficulty numbers. `tools/parity-check.js`, `tools/check-levels.js` and the **Build release** workflow (`tools/build-release.sh`) must all still pass. Run them. Nothing new may mention `SHKR_DEV` outside the place the build script allows.
-
-## 5. Check before you finish
-- Open `index.html` in a browser at about 1280×800 and 375×667 (portrait phone). Look at: the home header (plain `HIYROSCRIPT` on the left, `HOW TO PLAY` and `SETTINGS` chips on the right, with nothing overflowing), every How to play page (the animation plays, the runner survives, the JUMP/ROLL label lines up with the presses, back is hidden on page 1, the last page's button says "start over", the dots follow along), the scroll cue, and reduced motion.
-- Die in level 1 with Sound effects on and you hear the sound. Turn it off and you hear nothing. Reload and the setting is remembered. The music slider doesn't change the effect's volume. Pausing, restarting and hazard cards all work as before.
-- Finish with a short summary of what changed, the file list, and anything you couldn't match exactly (for example, whether the plain tag is hard to read on any backdrop).
+## Acceptance checks
+- Fresh save → level 1 → Bloom card → "Understood" → the run plays and freezes about one beat before the first spike, with the runner still visible on screen, the music silent and the card showing "Understood".
+- "Understood" or Enter → the run continues from the same spot, with the music on the beat and no auto-pause or jump in position. Jumping on the next beat clears the spike.
+- Die later in the level → no tip on the retry. Clear localStorage → the tip shows again.
+- Turn Objective tips off → no tip.
+- Esc, switching tabs or blurring the window while the tip is up never leaves the game stuck or shows two cards.
+- `node tools/check-levels.js` and `node tools/parity-check.js` still pass.
