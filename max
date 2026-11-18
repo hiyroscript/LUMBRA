@@ -1,98 +1,196 @@
-# Task: Shadow Skirr (hiyroscript/shkr): play icon on the home pulse button, and remove the splash screen
+# Task: Shadow Skirr (hiyroscript/shkr): major soundtrack rework — tighter timing, a real sound, and music that matches each level's theme
 
-You're working in the `hiyroscript/shkr` repo (Shadow Skirr, a rhythm runner in plain HTML/CSS/JS with no build step for the dev build). There are two changes. Keep the diff small and match the code style already in the files (compact one-line CSS rules, `function` declarations, `$`/`$$` helpers).
+You're working in the `hiyroscript/shkr` repo (Shadow Skirr, a rhythm runner in plain HTML/CSS/JS, no build step for the dev build). Every soundtrack is synthesised live with Web Audio in `js/music.js`; there are no audio files and there must not be any after this task.
 
-Read these first: `index.html` (the `#splash` and `#home` sections), `css/style.css` (the `/* splash */` block, the `.pulse` rules under `/* home */`, `#home .pulse i`, the `@media (max-height:430px)` and `@media (prefers-reduced-motion:reduce)` blocks), `js/game.js` (`G`, `SCREENS`, `show()`, `paintHome()`, `startHome()`, `launch()`, `audioGesture()`, the main `loop()` and the `/* boot */` block near the end), and `README.md`.
+**The problem:** the 31 soundtracks (30 levels + home) sound "robotic" and "pixelated": beepy, chiptune-ish, mechanically even, and too much alike from one level to the next. A pine forest, a foundry, a cathedral and a carnival all come out as the same square-wave toy with a different scale. This is a **major rework**: rebuild the sound engine, the drums, the arrangement and the per-level specs so the music sounds like produced, musical, themed game music, with every hit landing exactly on time.
 
----
+**The one rule that cannot bend:** the music and the level are the same thing. The lead line must still play on **exactly** the half-beats where the chart asks for an action (`L.chart[cell]` 1 = jump, 2 = roll/slide, 3 = special-hazard action), and the beat grid must stay exactly where the game thinks it is. Sound better, never drift.
 
-## 1. Add a play icon in the centre of the black pulse button
-
-**Now:** the home screen's start button is
-```html
-<button class="pulse" id="startOrb" aria-label="Play"><i></i><b></b></button>
-```
-- `.pulse i` is the solid black disc (`background:var(--ink)`) that "breathes" (`animation:breathe 1.6s`, scale .86 ↔ 1). On home it also gets a white ring: `#home .pulse i{box-shadow:0 0 0 4px #fff}`.
-- `.pulse b` is the expanding halo ring (`animation:halo 1.6s`).
-- `.pulse` is `display:grid;place-items:center`, sized `clamp(64px,12vh,96px)` (56px under `max-height:430px`).
-- When the selected level is locked, `paintHome()` adds `.locked`: the disc turns grey (`--paper-3`), stops animating, the halo hides, and `::before`/`::after` draw a padlock.
-
-The disc is plain black with nothing on it, so it doesn't read as "play".
-
-**Do:**
-- Draw a **white, right-pointing play triangle** centred on the black disc.
-  - Add it as a new child element in the markup, e.g. `<button class="pulse" id="startOrb" aria-label="Play"><i></i><b></b><u aria-hidden="true"></u></button>` (any spare inline tag or a `<span class="play-ico">` is fine). **Don't use `::before`/`::after` on `.pulse`** — those pseudo-elements are already taken by the padlock in `.pulse.locked`.
-  - Pure CSS, no SVG file, no icon font, no new JS. A CSS triangle is enough, for example: `width:0;height:0;border-style:solid;border-width:<h/2> 0 <h/2> <w>;border-color:transparent transparent transparent #fff`, or a `clip-path:polygon(0 0,100% 50%,0 100%)` box with `background:#fff`. Pick one.
-  - **Size:** relative to the button so it scales with the `clamp()` and with the 56px small-height size — roughly 30–34% of the button's width tall, an equilateral-ish triangle. Use `%` / `em` or `calc()` off the button size, not a fixed pixel size.
-  - **Optical centre:** a play triangle looks off-centre when its bounding box is centred. Nudge it right by about 6–8% of its own width (e.g. `transform:translateX(8%)` or a small `margin-left`) so it looks centred on the disc.
-  - **Layering:** it must sit above the disc (`<i>`) and the halo (`<b>`): `position:relative;z-index:1` (the button is a grid with `place-items:center`, so it centres itself). `pointer-events:none` so clicks still hit the button.
-  - **Motion:** the icon should **breathe with the disc** so it never looks detached when the disc shrinks to .86. Easiest: reuse the existing `breathe` keyframes on the icon too (`animation:breathe 1.6s ease-in-out infinite`), keeping the same timing so they stay in phase. If you nudge it with `transform`, don't let the animation's `transform` wipe out the nudge — use `margin-left` for the nudge instead, or a wrapper.
-- **Locked state:** when `.pulse.locked`, **hide the play icon** (`display:none`) so only the existing padlock shows. Don't change the padlock.
-- **Reduced motion:** add the icon to the existing rule so it stops too: `.pulse i,.pulse b,<icon selector>{animation:none}`. With motion off the disc rests at its unanimated size, so check the icon still looks centred and in proportion.
-- **Press feedback:** `.pulse:active{transform:scale(.92)}` scales the whole button, so the icon shrinks with it automatically. Don't add anything for that.
-- Keep `aria-label="Play"` on the button. The icon is decorative (`aria-hidden="true"`).
-- Don't change the button's size, the disc colour, the white ring, the halo, or `#startLbl` ("play" / "replay · N tries" / "locked") underneath.
+Keep the code style already in the files: `"use strict"` IIFE, `function` declarations, compact one-line tables, short comment blocks that explain *why*.
 
 ---
 
-## 2. Remove the splash screen
+## 0. Read these first
 
-**Now:** on load a full black screen shows the title "SHADOW SKIRR" letter by letter and the credit "a game by hiyroscript", then fades out after 1.9 s (or on tap) and goes to home. The pieces:
-- `index.html`:
-  ```html
-  <section id="splash" class="screen on">
-    <div class="mid"><h1 class="splash-title" id="splashTitle"></h1></div>
-    <p class="credit">a game by hiyroscript</p>
-  </section>
-  ```
-- `css/style.css`, the whole `/* splash */` block: `#splash{…}`, `#splash .mid{…}`, `.splash-title{…}`, `.splash-title span,.title span{…letterIn…}`, `#splash .credit{…}`, `@keyframes creditIn`, `#splash.out{…}`, `@keyframes splashOut`.
-- `js/game.js`:
-  - `const G = { mode: "splash", … }`
-  - `const SCREENS = ["splash", "home", "howto", "settings", "levels"]`
-  - in `show()`: `if (el && id !== "splash") { … add("enter") }`
-  - in `loop()`: `if (G.mode === "splash" || !G.st || !G.L) return;`
-  - in the boot block:
-    ```js
-    setLetters($("#splashTitle"), "SHADOW SKIRR");
-    let splashDone = false;
-    function leaveSplash() {
-      if (splashDone) return; splashDone = true;
-      $("#splash").classList.add("out");
-      startHome();
-      setTimeout(function () { show("home"); }, 440);
-    }
-    setTimeout(leaveSplash, 1900);
-    $("#splash").addEventListener("pointerdown", function () { audioGesture(); leaveSplash(); });
-    ```
-
-**Do:**
-- Delete the `#splash` section from `index.html`.
-- Delete the splash-only CSS: `#splash`, `#splash .mid`, `.splash-title`, `#splash .credit`, `@keyframes creditIn`, `#splash.out`, `@keyframes splashOut`. **Careful:** `.splash-title span,.title span{display:inline-block;animation:letterIn …}` is shared — the home level title (`#title`) uses `.title span` for its letter-in animation. Keep that rule as `.title span{…}` and keep `@keyframes letterIn`.
-- In `js/game.js`:
-  - Remove `"splash"` from `SCREENS`.
-  - Start `G.mode` as something that isn't `"splash"` — `"home"` is fine because `startHome()` sets it anyway — and drop the `G.mode === "splash"` check from `loop()` (keep the `!G.st || !G.L` part).
-  - Simplify `show()`'s `id !== "splash"` condition to just `if (el)`.
-  - Replace the whole splash boot block with a direct start: call `startHome()` and `show("home")` once, at the same point in boot (after `RENDER.resize(cv)` and the resize listeners, before `requestAnimationFrame(loop)`). Remove `setLetters($("#splashTitle"), …)`, `splashDone`, `leaveSplash`, the 1900 ms timer and the splash `pointerdown` listener.
-  - Search the whole repo afterwards (`grep -rni splash`) and remove every leftover reference: JS, CSS, HTML, `js/dev.js`, `js/dev-config.js`, `js/fixes.js`, `tools/*`, the workflow. Nothing should mention `splash` when you're done (except git history).
-- **Home must appear immediately on load**, with its normal `.enter` fade-up, the animated backdrop running, and the level title letters animating in.
-- **Audio:** the splash tap used to be the user gesture that unlocked audio. That's no longer needed as a separate step: `audioGesture()` is already registered on `document` for `pointerdown` and `keydown` (capture), and when audio first turns on while `G.mode === "home"` it calls `startHome()` again to start the home music. Make sure that still works: load the page, music is silent (browser autoplay policy), the first tap or key anywhere starts the home music, and the first click on the play button both unlocks audio and launches the level (the wipe animation plays and the level music starts). Make sure the first gesture doesn't start the home song twice or restart the attract demo with a visible jump.
-- **Keep the credit text off-screen?** The splash was the only place showing "a game by hiyroscript". The home header already shows `hiyroscript`, so don't add the credit anywhere else. Leave `<title>` and the meta description unchanged.
-- In `README.md`, update anything that mentions the splash/intro screen or the boot sequence (if nothing mentions it, leave the README alone).
+- `js/music.js` — all of it. Know `INS`, `KITS`, `BASS`/`BASS_INS`/`BASS_LEN`, `build()`, `voice()`, `nz()`, `tone()`, `riser()`, `drum()`, `comboBars()`, `makeSong()`, `semi()`/`chordAt()`, `playStep()`, `schedule()`, `start()`/`stop()`/`beat()`, `sfx` and `renderStats()`.
+- `js/levels.js` — the header comment, and every level's `name`, `th` (theme: far backdrop, near backdrop, ground, spike, bar, particles) and `mu` (`[bpm, root, scale, progA, progB, kit, bass, lead, arp, pad, swing, lead2]`), plus `HOME`.
+- `js/sim.js` around `compile()` — how `L.chart` (0/1/2/3 per half-beat cell), `L.energy` (0–4 per bar), `L.bars`, `L.endX` are built. Note the hurdle rule that writes a `2` two cells after a `&`.
+- `js/game.js` — the `clock` object (it reads `MUSIC.t0`, `MUSIC.song`, `ctx.currentTime` and output latency), `startHome()`, `startLevel()`/`beginRun()`/`go()`, the crash path (`MUSIC.stop(0.14)` + `MUSIC.sfx.die()`), pause/resume (`MUSIC.suspend/resume`), the spike-tip rewind (`MUSIC.start(song, beat)` mid-song), and the main loop calling `MUSIC.schedule()` every frame.
+- `tools/parity-check.js`, `tools/build-release.sh`, `.github/workflows/build.yml` — what the release gate checks.
+- `README.md` — Features, the Technical notes on music, crash sound and spike tip.
 
 ---
 
-## 3. Don't break anything
-- Don't change level charts, `SIM`, the renderer, music, or difficulty numbers.
-- Run `node tools/parity-check.js`, `node tools/check-levels.js` and `bash tools/build-release.sh`; all must pass, same as the **Build release** workflow (`.github/workflows/build.yml`). If the build script or parity check lists files/ids and `splash` was in them, update them.
-- Nothing new may mention `SHKR_DEV` outside the place the build script allows.
+## 1. Diagnosis: why it sounds robotic and pixelated (fix every one of these)
 
-## 4. Check before you finish
-Open `index.html` in a browser (desktop width and ~360×740 phone size, plus a short landscape ~740×360 to hit the `max-height:430px` rule) and confirm:
-1. The page opens **straight onto home** — no black screen, no flash of a splash, no console errors.
-2. The black pulse has a **white play triangle**, optically centred, breathing in sync with the disc, visible against every home backdrop theme (use ←/→ to step through levels).
-3. On a **locked** level the triangle is gone and only the padlock shows; on an unlocked level it comes back.
-4. With `prefers-reduced-motion: reduce` (DevTools → Rendering), disc and triangle are both still, and the triangle is still centred.
-5. Clicking the play button launches the level with the wipe and music; the first-ever gesture unlocks audio correctly.
-6. The level title on home still animates in letter by letter.
+**Timbre ("pixelated")**
+1. Most voices are raw `square`/`sawtooth`/`triangle` oscillators with a fixed static filter, or no filter at all (`square`, `zap`, `calliope`, `harpsi`, `organ`, `accordion`, `arp`). That's the chip sound.
+2. `voice()` folds every note above 3600 Hz down an octave (`while (f > 3600) f /= 2`). High lead notes and the octave-up special cues suddenly jump down: melodies "wrap around" and sound broken. Choose registers on purpose instead.
+3. The drums are bleeps: the snare `r` is a 1750 Hz triangle blip plus 30 ms of noise, `w`/`W` are square blips, the kick is one sine sweep with a tiny click, hats are a single highpassed noise burst. No body, no transient shaping, no layering.
+4. One reverb for everything: a 2.4 s exponentially-decaying white-noise IR, the same in a cave, a cathedral, a rooftop and a reef. No pre-delay, no early reflections, no damping (it's as bright as the input).
+5. No stereo at all. Every voice, drum and effect is dead centre.
+6. Envelopes start with `setValueAtTime(0.0001)` then a linear ramp, and stop with `o.stop()` sometimes before the release has decayed: audible clicks on fast notes and at song stop.
+7. FM voices (`epiano`, `bell`, `musicbox`, `fmbell`, `chime`, `cue`) use one operator whose index scales with frequency only, so high notes get harsh and low notes go dull.
 
-In your summary, list the files you changed, and include a screenshot (or describe) the button in its normal, locked and small-height states.
+**Timing and feel ("robotic")**
+8. Every hit in a pattern has the same velocity (`1` or a fixed `.7`/`.8`). No accents, no ghost notes, no groove.
+9. Swing is applied only to odd sixteenths of drums/hats/arp (`ts`), never to the lead or bass, so parts disagree about the groove; on levels where swing is `0` everything is grid-rigid.
+10. Lead notes are cut to `0.55`–`0.92` of their length with no legato, no slides, no articulation: a staccato typewriter.
+11. Dense bars switch every other note to `lead2` an octave up: it reads as two chip channels ping-ponging.
+12. `schedule()` clamps late notes to `ctx.currentTime + 0.002` (`Math.max`), so after a hiccup a whole burst of notes fires at once instead of being skipped or kept on-grid. The lookahead (0.22 s) and 60 ms `setInterval` work, but notes are created only from inside one function with no sense of "this note is late, drop it".
+13. Release tails from the previous bar are cut by the bus fade on `stop()` with linear ramps, which is fine, but a song that's restarted (crash retry, spike-tip rewind) has a fresh bus and no tail; that's correct, keep it.
+
+**Writing ("doesn't match the theme")**
+14. The melody is a seeded random walk (`stepv` from `[-2,-1,-1,1,1,2,2,3]`) per bar, reseeded from the bar's chart string. There is no motif, no phrase, no call-and-response, no cadence. Two bars with the same chart play the same notes regardless of where they are in the song.
+15. Pads are block root-position triads/sevenths re-triggered every bar with no voice leading.
+16. Every level has the same arrangement skeleton (drums + bass pattern + arp + pad + lead), only swapping enum indices. Theme only reaches the music through a scale and an instrument name.
+17. Energy 0–4 only adds/removes layers; no transitions, no fills that suit the style, no sections that sound different (e.g. half-time breather, filter-swept build).
+
+---
+
+## 2. Hard constraints
+
+1. **Same public API and timing contract.** Keep `MUSIC.init, makeSong, start, stop, beat, schedule, renderStats, sfx, ctx, song, t0, setVol, resume, suspend` with the same meanings. `start(S, fromBeat)` must still return `t0`, and beat `b` must still sound at exactly `t0 + b * S.spb`. `S.spb` and `S.bpm` must stay equal to the level's tempo. `game.js` must need no change to keep the clock in sync (a change is allowed only if it's tiny and you explain why).
+2. **Tempos are gameplay.** `mu[0]` (bpm) is tied to the level's difficulty and timing. Do not change any level's bpm. Do not change any chart, form, energy digit, hazard placement or anything in `js/sim.js`. `tools/check-levels.js`, `tools/difficulty.js`, `tools/density.js` and `tools/parity-check.js` must give exactly the results they give today.
+3. **The lead plays on the actions.** On every cell where `L.chart[cell] > 0`, a clearly audible lead note starts at that half-beat, sample-accurately on the grid (no swing, no humanise offset on those notes; swing and humanisation apply to other parts and to non-action notes only). Cells with `0` in a bar that has actions never get a lead-voice note that could be mistaken for an action. Jump (1), roll (2) and special (3) must stay distinguishable by ear as today: roll keeps a downward/bent character, special keeps the octave-up glassy cue. Empty bars (no actions) may carry a melodic motif as now, but quieter and in a different register or voice so it never reads as an action.
+4. **Existing musical cues keep their meaning:** the combo riser in the bar before a combo bar (`comboBars`), the build riser into an energy-4 drop, the crash + sub boom on the first bar of a drop, the closing chord after the last bar. You may make them sound much better; don't remove them or move them.
+5. **No audio files, no libraries, no network.** Web Audio only, built in code. Samples you synthesise into `AudioBuffer`s at init (noise, IRs, drum one-shots, wavetables via `createPeriodicWave`) are fine and encouraged.
+6. **Performance.** Must run smoothly on a mid-range phone at 200 bpm with energy 4. Budget: keep active nodes bounded (target: no more than ~60 simultaneous voices; voice-steal the quietest/oldest percussive voices beyond that). Pre-render drum one-shots and reverb IRs once per context (and cache per level kit), don't rebuild them per hit. No `ScriptProcessorNode`. `AudioWorklet` is allowed only if it degrades gracefully when unavailable (file:// in some browsers) — prefer not to need it.
+7. **Loudness.** Every track must render audible from the first bar to the end and must not clip: through `renderStats`, peak ≤ 0.98 and whole-song RMS within ±2 dB of each other across all 31 tracks (level-matched), with no silent second except where the form deliberately has energy 0. The crash sfx and rewind sfx are untouched and stay on their own output.
+8. **Release build.** `tools/build-release.sh` and the parity check must still pass; nothing new may mention `SHKR_DEV`.
+9. Start must be glitch-free: no click at `start()`, `stop()`, pause (`suspend`) or resume, the spike-tip rewind restart (`start(song, beat)` mid-bar), or a crash fade.
+
+---
+
+## 3. The new engine (in `js/music.js`)
+
+Restructure `music.js` into clear sections. Suggested shape (adjust if you have a better one, but keep one file):
+
+### 3.1 Timing core
+- Keep a look-ahead scheduler, but schedule on a **beat-exact grid computed from `t0`** (never accumulate floating time). Raise lookahead to ~0.3 s with a 25 ms timer; `schedule()` is still also called from the game loop.
+- **Late notes:** if a step's time is already more than ~20 ms in the past, skip its new notes rather than firing them late (drums and pads may be skipped; for action cells, skipping is also right — a late action note is worse than none). Never stack a backlog at `currentTime`.
+- **Groove layer:** a per-level `groove` (swing amount + a 16-step velocity/micro-timing template, e.g. straight, shuffle, MPC-ish swing 54–62 %, half-time, march, waltz-feel accents for 3-against-4 parts). Apply it to drums, bass, arp and comping — **never to action lead notes**, which stay exactly on the half-beat. Micro-timing offsets are small and deterministic (seeded), ≤ ±8 ms, never late on the downbeat kick.
+- **Velocity:** accents on 1 and 3 (or per style), ghost notes in snares/hats, slight seeded random (±6 %) on non-action parts. Map velocity to brightness (filter cutoff / FM index), not only gain.
+
+### 3.2 Sound sources (rebuild `INS`)
+Replace the instrument table with a richer **patch** model. Each patch can combine:
+- band-limited oscillators and custom `PeriodicWave` tables (warm saw, hollow reed, organ drawbars, vocal "ah/oo" formant wave) instead of raw `square`/`sawtooth`;
+- per-patch **filter envelope** with key tracking and velocity tracking; optional second filter (formant/bandpass) for reeds, brass, voice;
+- **2- or 3-operator FM** with index scaled by note and velocity (proper bells, e-piano tines, mallets, kalimba, glass);
+- **Karplus–Strong-style plucked strings** (noise burst into a short tuned feedback delay with damping) for koto, harp, guitar, harpsichord, pizzicato, kalimba — these alone will remove most of the "chip" feel;
+- **unison/detune with stereo spread** for pads and supersaws;
+- **noise components** for breath (flute, whistle, shakuhachi), bow (strings), and key-click (organ, music box);
+- **glide/portamento** for legato leads and bass;
+- delayed **vibrato** that fades in only on held notes;
+- clean ADSR: start from exactly 0 with a 1–3 ms minimum attack, use `setTargetAtTime` decays, always stop oscillators after the release has reached silence.
+Remove the 3600 Hz octave fold. Give each patch a sensible `range` (lowest/highest midi) and have the arranger pick octaves inside it.
+
+Required palette (at minimum — add more if a level needs it): warm flute, wooden recorder/whistle, shakuhachi, koto, guzheng-style pluck, harp, nylon guitar, harpsichord, celesta/music box, kalimba, marimba, vibraphone, glockenspiel, tubular/church bell, e-piano, felt piano, church organ, accordion, harmonica, calliope, string ensemble (bowed, slow and short), pizzicato strings, brass section, French horn, choir "ah/oo", steel drum, oud/saz-style pluck, sitar-ish drone, analog warm lead, supersaw, acid 303, sub bass, round finger bass, synth bass, upright pizz bass, tuba. Keep a `cue` patch for special actions: still glassy and octave-up, but musical and in key.
+
+### 3.3 Drums (rebuild `drum()` and `KITS`)
+- Synthesise drum one-shots once into `AudioBuffer`s at init (offline-style DSP in JS loops is fine): layered kick (click + pitched body + sub tail), snare (two tuned body modes + filtered noise with its own envelope), clap (multi-burst), rim, closed/open/pedal hats (metallic: six detuned square partials through a bandpass + highpass, the 808 recipe), shaker, tambourine, ride, crash, toms, taiko (big low + skin slap), frame drum/darbuka (doum/tek), tabla-ish, woodblock, cowbell, triangle, anvil/metal hit, hand clap, finger snap, brushes, timpani, gong, glass clink, water drop.
+- Kits are named and theme-led (see §5), each with **several pattern variations per energy level** and **fills** chosen per style (not the same `n` snare roll everywhere). Patterns get velocity per step (e.g. `x` accent, `X` loud, lowercase ghost), not just on/off.
+- Stereo-place kit pieces (hats slightly right, toms panned, percussion wide).
+- Sidechain-style ducking of pads/bass by the kick on energy ≥ 3 (gain automation per kick, not a real compressor) for the electronic levels only.
+
+### 3.4 Space and mix
+- **Per-level reverb** from a small set of generated IRs, each with pre-delay, early reflections, decay time and damping (high frequencies decay faster): `room`, `hall`, `cathedral` (long, dark), `cave` (dense, metallic flutter), `plate` (bright, smooth), `outdoor` (very short, sparse reflections + distant tail), `underwater` (lowpassed, chorused). Generate on demand once per context and cache.
+- **Delay** in sync: dotted-eighth or quarter, ping-pong in stereo, filtered and with feedback ≤ 0.4.
+- Optional per-level **colour**: tape-style gentle saturation (`WaveShaper` with a soft curve, oversample `"2x"`), chorus on pads, a lowpassed "muffled" bus for the underwater level, a vinyl/crackle-free warmth — no lo-fi bitcrush anywhere (that's the pixelation we're removing).
+- **Mix bus:** per-group gains (drums, bass, harmony, lead, fx), a gentle high-pass on everything but bass/kick (~30 Hz), a broad low-shelf/high-shelf master EQ, then a glue compressor (softer than now: threshold ~-18, ratio 2.5–3, attack 10 ms, release 150 ms) and a final limiter-like compressor (fast, high ratio, threshold ~-2). Lead must always sit on top: the action notes are gameplay information.
+- Panning: lead centre, bass and kick centre, harmony and percussion spread.
+
+### 3.5 Writing and arrangement (rebuild `playStep` into an arranger)
+Precompute the whole song at `makeSong()` time (it's at most ~60 s): a list of note events per part with times in beats, velocities, durations and patch names. `playStep`/`schedule` then just plays events in the window. This makes timing exact, makes late-skip easy, and lets you look ahead (voice leading, phrase endings, fills before section changes).
+
+- **Harmony:** keep `progA`/`progB` as the default chord source, but voice-lead the chords (smallest movement between voicings, inversions, add 9/sus/7 colours by style), and allow a per-level `harm` style (block pads, arpeggiated, strummed, comping stabs, organ swells, drone + fifths).
+- **Lead (action line):**
+  - Keep the rule: a lead onset on every action cell, nothing on non-action cells in action bars.
+  - Replace the random walk with **motif-based melody**: generate a 2-bar motif per level from the seed and the scale, then develop it (repeat, sequence up/down a step, invert, rhythmically re-fit to the chart's onsets). Same chart rhythm in two places of the song should usually get related, not identical, notes depending on section (intro/build/peak/breather/climax/outro from the energy curve).
+  - Pitch choice: strong beats land on chord tones, weak ones may pass; avoid leaps larger than a sixth except at phrase starts; resolve to the tonic or third at the last action of a section; keep the line inside the patch's range.
+  - Note length fills to the next action (legato with glide on sustaining patches; natural decay on plucked/struck patches). Dense bars (≥ 5 actions) stay readable through short articulation and maybe a lighter patch, **not** by alternating octaves.
+  - Roll (2): a note with a quick downward bend or a lower-octave accented note on the same patch, so it reads as "go low". Special (3): main note + in-key glassy `cue` an octave up (+ a fifth shimmer allowed), as today but beautiful.
+- **Countermelody/answer:** in empty bars and breathers, a secondary voice answers the last lead phrase (call-and-response), quieter, in another register.
+- **Bass:** style-specific lines (root-fifth, walking, octave pump, syncopated, drone, tuba oom-pah, acid slides) that follow the chord and approach the next chord on the last eighth.
+- **Energy and sections:** 0 = sparse intro/ambient (pad, texture, hint of motif), 1 = groove starts, 2 = full groove, 3 = added counter-lines and percussion, 4 = drop/climax (full kit, wide pads, lead doubled at the octave or in harmony a third/sixth below on sustaining patches). Detect section changes from the energy curve and write: a fill in the bar before, a filter sweep or swell into 4, a crash on the change, a half-time feel or stripped arrangement in the one-bar breather.
+- **Ending:** the closing chord should be a proper cadence in the level's style with a natural tail (reverb + let-ring), not a block chord stab.
+- **Home:** `HOME` loops forever (`S.loop`). It must loop seamlessly (no gap, no click, harmony and motif that connect bar `bars-1` → bar `0`), stay calm and inviting, and never get tiring after several minutes.
+
+### 3.6 Per-level spec format
+Extend `mu` in `js/levels.js` **without breaking the first twelve fields' meaning** (or replace it with a named object `mu: { bpm, root, scale, progA, progB, ... }` and keep `bpm` identical — your call, but update the header comment and any tool that reads `mu`). New fields per level: `kit` (named), `groove`, `bassStyle`, `harm`, `lead`, `lead2`/`answer`, `pad`, `perc` (extra textures), `space` (reverb name + size), `fx` (delay type, chorus, saturation), and an optional `ambience` (see §5). Keep `scale`, `root`, `progA`, `progB` unless a level clearly needs a better key or progression for its theme — **bpm never changes**.
+
+---
+
+## 4. Theme matching: what each level should sound like
+
+Use the level `name` and `th` as the brief. Keep each level's existing tempo; change instrumentation, groove, space, harmony and kit to fit. These are directions, not exact specs — use taste, and make each level recognisable within two bars with your eyes closed.
+
+| # | Level (bpm) | Direction |
+|---|---|---|
+| 0 | Home (100) | Dreamy lydian lull: felt piano + celesta motif, soft string pad, brushed kit with shaker, warm hall. Calm, loops seamlessly. |
+| 1 | Whispering Pines (112) | Folk-ambient forest: wooden flute lead, nylon guitar picking, soft upright bass, brushed kit + shaker, birdsong-ish high whistle answers in breathers, wind texture at energy 0, outdoor space. |
+| 2 | Midnight Rooftops (116) | Lo-fi/neo-soul night: e-piano (Rhodes-style tines) lead, muted bass, swung boom-bap kit with rim and snaps, jazzy 7th/9th voicings, distant city-hum texture, plate reverb. No bitcrush. |
+| 3 | Lantern Harbor (120) | Sea shanty: accordion lead, tin-whistle answer, upright/tuba oom-pah bass, frame drum + stomps + claps, rolling 6/8-feel accents over 4/4, creaking-rope/gull-ish textures sparingly, wooden room. |
+| 4 | Clockwork Attic (124) | Steampunk music box: celesta/music box lead with key-click, harpsichord counter, pizzicato strings, ticking woodblock/clock kit with gear-like metallic percussion, pendulum swing feel, dusty small room. |
+| 5 | Paper Kite Plains (128) | Bright pastoral pop: whistle/recorder lead, acoustic guitar strums, glockenspiel sparkle, light pop kit with tambourine, airy wind pad, wide outdoor space. |
+| 6 | Mirage Dunes (128) | Desert, double-harmonic: ney/reed lead with breath, oud-style pluck, drone on root+fifth, darbuka doum/tek + riq/finger cymbals, shimmering heat pad, long dry-then-wide space. |
+| 7 | Frostbite Ridge (132) | Icy, cinematic: glass/vibraphone/bell lead, crystalline FM chimes, cold airy strings, deep sub, sparse heavy kit with long reverb, wind-howl texture, large cold hall. |
+| 8 | Bamboo Monastery (136) | Hirajōshi zen-action: koto/shamisen pluck lead, shakuhachi answer with breath, taiko + bamboo/wood percussion, temple bell on section changes, sparse low drone, stone-courtyard space. |
+| 9 | Prism Caverns (140) | Crystal cave: kalimba/marimba + FM glass lead, phrygian, dripping water-drop percussion, resonant cave reverb with flutter echoes, deep sub drones, glassy arps panned wide. |
+| 10 | Iron Foundry (140) | Industrial: distorted analog lead (gentle saturation, not bitcrush), heavy kick, anvil/metal-hit snare layer, hissing steam noise sweeps, pounding piston rhythm, gritty bass, dark room/plate. |
+| 11 | Sunken Reef (144) | Underwater lydian: vibraphone/marimba lead with soft tremolo, bubbly FM plucks, chorused pads, rounded bass, muffled lowpassed bus with slow swells, bubble-pop percussion, underwater space. |
+| 12 | Storm Lighthouse (148) | Gothic storm: church/pipe organ lead, string tremolo, timpani + thunder-roll toms, rain-noise texture rising with energy, minor-key drama, large stone hall. |
+| 13 | Cable Car Summit (152) | Alpine adventure: brass/horn lead, accordion or zither counter, oom-pah-to-driving bass, crisp marching snare, cowbell accents, bright mountain air (outdoor + long echo). |
+| 14 | Carnival After Dark (152) | Eerie carnival: calliope/steam-organ lead (wobbly, slightly detuned), music-box answer, tuba bass, oom-pah waltzy accents, toy percussion, creepy dblharm colour, slightly warped tape feel (subtle pitch wobble only on the calliope). |
+| 15 | Rift Observatory (156) | Cosmic synthwave: soft FM bell / analog lead, warm supersaw pad, arpeggiated sequencer, gated reverb snare, deep space hall + long ping-pong delay, star-twinkle chimes. |
+| 16 | Hanging Gardens (160) | Lush lydian fantasy: harp lead, flute answer, string ensemble, light frame drum + tambourine + shaker, birds/water textures sparse, bright garden hall. |
+| 17 | Comet Steppe (164) | Epic steppe ride: supersaw/analog lead over galloping bass, phrygian, horse-gallop toms, throat-singing-ish low drone (formant), big wide space, comet whooshes on drops. |
+| 18 | Shipwreck Graveyard (164) | Ghost-pirate: brass section + low strings, harmonic minor, tuba/low string bass, creaking timpani + chains (metal rattle percussion), ghostly choir "oo" pad, damp dark cave-room. |
+| 19 | Geyser Flats (168) | Funky acid outdoors: 303 acid lead with slides, zap answers, syncopated funk drums, steam-burst noise risers into drops, bubbling bass, short outdoor space. |
+| 20 | Ashfall Caldera (172) | Volcanic metal-orchestral: aggressive saturated saw lead, brass hits, phrygian-dominant, double-time toms, heavy kick, ember-crackle texture, rumbling sub, dark big room. |
+| 21 | Echo Palace (176) | Baroque ballroom: harpsichord lead, FM bell answer, strings ensemble, timpani accents, classic chamber feel with very long echoing palace reverb + tempo-synced echoes (the "echo" is the theme). |
+| 22 | Library of Dust (176) | Whimsical study: pizzicato strings lead, harpsichord / celesta counter, woodwind (clarinet-like reed) answer, page-turn/brush percussion, soft bassoon-ish bass, small warm wooden room. |
+| 23 | Stained Cathedral (180) | Sacred-epic: pipe organ lead, choir "ah" pad, tubular bells on section changes, timpani + low taiko, long dark cathedral reverb, minor key. |
+| 24 | High Steel (184) | Industrial jazz-rock: brass section stabs as lead, walking bass, swung punchy kit with ride and cowbell, girder clangs (anvil/metal hits), city-sky echo. |
+| 25 | Tesla Yard (188) | Electro: zap/FM lead with pitch spikes, acid answer, electric crackle and arc-buzz textures (filtered noise bursts), four-on-floor with sidechain pump, phrygian, metallic plate. |
+| 26 | Rail Yard Express (188) | Train-blues/country-rock: harmonica lead with bends, accordion answer, train-rhythm shuffle (brush snare chuff-chuff), walking bass, steam-whistle riser, whistle chord on drops. |
+| 27 | Lantern Bazaar (192) | Market dance: reed/ney lead, oud and santur-style hammered pluck answers, darbuka + riq + finger cymbals + handclaps, drone, dblharm, warm courtyard space. |
+| 28 | Stormfront Armada (196) | Airship war march: brass section + horns lead, snare-drum military march, low strings ostinato, rain and wind rising, thunder on drops, big outdoor hall. |
+| 29 | Inverted Citadel (196) | Upside-down gothic: bell lead with reversed-swell pre-echoes (a reverse-envelope pad before downbeats, made with envelopes, not buffers played backwards), harmonic minor, choir, castle drums, disorienting ping-pong delay, cathedral-like space. |
+| 30 | The Last Light (200) | Finale: supersaw + string ensemble + choir, full orchestral-electronic drop, recall the Home motif (it's the "last light"), biggest kit with timpani and taiko, huge hall. Must feel like an ending. |
+
+Ambience/texture layers (wind, rain, water, steam, crackle, birds) are quiet, filtered and **never rhythmic on the off-grid** — they must not confuse the beat. Keep them under the music and out of the lead's frequency range.
+
+---
+
+## 5. Tests and checks
+
+Add `tools/music-check.js` (Node, no dependencies — runs the same arranger logic headless) or an equivalent page in the dev build, and make it part of what you run before finishing:
+
+1. **Action alignment:** for every level, every cell with `L.chart[cell] > 0` produces exactly one lead-voice onset at `cell * spb / 2` (± 0 samples in the event list), with the right kind (jump/roll/special), and no lead-voice onset in action bars on cells where `chart === 0`. Print a pass/fail per level.
+2. **Grid exactness:** all event times are derived from integer step indices; check no drift after 60 s (last event of the last bar within 1 ms of `bars * 4 * spb`).
+3. **Loudness:** run `MUSIC.renderStats` for all 31 tracks in the browser (or the offline path) and list peak, RMS, and silent seconds; peaks ≤ 0.98, RMS spread ≤ ±2 dB, no silent second outside energy-0 bars.
+4. **Performance:** log max simultaneous voices per track and the scheduler's worst-case `schedule()` time on a CPU-throttled (4× slowdown) Chrome DevTools run of level 30.
+5. **Home loop:** render 3 loops and check there's no gap or spike at the loop seam.
+6. **Existing tools unchanged:** `tools/check-levels.js`, `tools/difficulty.js`, `tools/density.js` output identical before/after (diff them), and `tools/parity-check.js` + `tools/build-release.sh` pass.
+
+Then **listen** in a browser to every level (desktop speakers and headphones, and one phone):
+1. Home, then levels 1, 4, 8, 11, 14, 18, 21, 23, 26, 30 start to finish; the rest at least 20 s each, including a drop.
+2. Play with input: actions feel locked to the lead notes; a jump on the note is a clean landing.
+3. Crash mid-song (music fades, crash sfx is unaffected), retry, pause/resume, tab hide/show, level 1 spike tip rewind → resume mid-bar: no clicks, no double notes, no bursts of late notes, clock still in sync.
+4. Music volume slider at 0, 50 and 100: no distortion at 100.
+5. Nothing sounds like a chiptune unless the level is meant to, and no two levels sound like the same song in different scales.
+
+---
+
+## 6. Docs
+
+Update `README.md`: the music sentences in Features (keep them short), and add a Technical note on the new music engine (spec format, patches, kits, arranger, the action-lead rule, how to add a level's soundtrack, how to run `tools/music-check.js`). Update the header comments in `js/music.js` and `js/levels.js`.
+
+## 7. Delivery
+
+Work on a branch, in reviewable commits (e.g. 1 engine + timing, 2 patches, 3 drums + space, 4 arranger, 5 per-level specs, 6 tools + docs). In your summary:
+- the files you changed and why;
+- a per-level table: kit, lead/answer patches, space, groove, and one line on the feel;
+- the `music-check` output (alignment, loudness, voices);
+- anything you intentionally left out or think needs a human listen.
