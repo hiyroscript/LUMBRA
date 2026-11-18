@@ -17,7 +17,7 @@
   /* ---------------- saved state ---------------- */
   /* optional save-key override (README: Builds); without it, the real key */
   const REAL_KEY = "shadowskirr.v1";
-  const KEY = (window.SHKR_DEV && window.SHKR_DEV.saveKey) || REAL_KEY, LEGACY_KEY = "lumbra.v1", DEFAULTS = { music: 0.8, sfx: true, shake: true, objective: true, sel: 1, unlocked: 1, rec: {}, tips: {} };
+  const KEY = (window.SHKR_DEV && window.SHKR_DEV.saveKey) || REAL_KEY, LEGACY_KEY = "lumbra.v1", DEFAULTS = { music: 0.8, sfx: true, shake: true, objective: true, sel: 1, unlocked: 1, rec: {} };
   let S = loadState();
   function loadState() {
     let raw = {}, str = null;
@@ -40,7 +40,6 @@
     for (const k in DEFAULTS) o[k] = raw[k] !== undefined && raw[k] !== null ? raw[k] : JSON.parse(JSON.stringify(DEFAULTS[k]));
     o.unlocked = Math.max(1, Math.min(N, o.unlocked | 0 || 1)); o.sel = Math.max(1, Math.min(N, o.sel | 0 || 1));
     if (typeof o.rec !== "object" || !o.rec) o.rec = {};
-    if (typeof o.tips !== "object" || !o.tips || Array.isArray(o.tips)) o.tips = {};   /* level tips already acknowledged, { n: true } */
     o.objective = o.objective !== false;   /* saves from before the setting existed still show the objective box */
     o.sfx = o.sfx !== false;               /* ... and still get the death sound */
     return o;
@@ -80,7 +79,7 @@
   };
 
   const G = { mode: "splash", paused: false, n: 1, def: null, L: null, song: null, st: null, tryN: 1, session: 0, beat: 0, beat0: 0, spb: 0.5,
-    deadAt: 0, wonAt: 0, squash: 0, restY: 0, snap: true, cardUp: false, pauseT: 0, tip: false, mark: null, hist: null, rw: null };
+    deadAt: 0, wonAt: 0, squash: 0, restY: 0, snap: true, cardUp: false, pauseT: 0, tip: false, tipDone: false, mark: null, hist: null, rw: null };
   const keys = { j: false, s: false, qj: false, qs: false };
 
   /* ---------------- screens ---------------- */
@@ -231,8 +230,8 @@
   sw.addEventListener("click", function () { S.shake = !S.shake; paintSettings(); saveState(); });
   osw.addEventListener("click", function () { S.objective = !S.objective; paintSettings(); saveState(); });
   $("#resetBtn").addEventListener("click", function () {
-    showCard({ eyebrow: "settings", title: "Reset everything?", body: "All unlocks, stars and try counts will be cleared, and the level 1 tip will show again.",
-      acts: [{ t: "reset", danger: true, fn: function () { S.rec = {}; S.unlocked = 1; S.sel = 1; S.tips = {}; saveState(); hideCard(); show("home"); startHome(); } }, { t: "cancel", fn: hideCard }] });
+    showCard({ eyebrow: "settings", title: "Reset everything?", body: "All unlocks, stars and try counts will be cleared.",
+      acts: [{ t: "reset", danger: true, fn: function () { S.rec = {}; S.unlocked = 1; S.sel = 1; saveState(); hideCard(); show("home"); startHome(); } }, { t: "cancel", fn: hideCard }] });
   });
 
   /* ---------------- objective box ----------------
@@ -490,7 +489,7 @@
     if (!r.d) { r.t++; saveState(); G.tryN = r.t; } else { G.session++; G.tryN = G.session; }
     G.st = SIM.newState(); G.st.ev = []; G.paused = false; stopTip(); G.squash = 0; G.restY = 0; G.snap = true; G.beat0 = 0;
     keys.qj = keys.qs = false;
-    G.hist = tipPending() ? [SIM.clone(G.st)] : null;   /* every tick's state up to the tip, for its rewind */
+    G.tipDone = false; G.hist = tipPending() ? [SIM.clone(G.st)] : null;   /* every tick's state up to the tip, for its rewind */
     RENDER.setLevel(G.L, G.def.th, G.n * 101);
     paintHud(); hudFill.style.transform = "scaleX(0)";
     const h = first ? newHazard(G.n) : null;
@@ -569,11 +568,12 @@
   /* ---------------- level 1 spike tip ----------------
      Once, on level 1 only, for its first spike only: just before the runner reaches that spike the game freezes like
      a pause. There is no card: the spike gets a red ring on the canvas (RENDER.frame's V.mark) and a note next to it
-     says what to do, with an "understood" button and a countdown (TIP.secs). Either one ends it, and the tip never
-     comes back (S.tips[1]). Then the run plays backwards, like a tape rewinding, to the start of a bar at least
-     TIP.back beats before the spike, and goes on from there with the music started again at that beat, so the player
-     gets a run-up to the spike they were just shown. Until it is acknowledged it shows on every run that gets that
-     far. The countdown and the rewind only run while the window has focus (and the loop doesn't run at all in a
+     says what to do, with an "understood" button and a countdown (TIP.secs). Either one ends it. Then the run plays
+     backwards, like a tape rewinding, to the start of a bar at least TIP.back beats before the spike, and goes on from
+     there with the music started again at that beat, so the player gets a run-up to the spike they were just shown.
+     It shows on every run of level 1 (a start, a replay, a restart, a retry after a crash), once per run: after its
+     rewind the run goes past the spike without it (G.tipDone). Nothing is saved. The countdown and the rewind only
+     run while the window has focus (and the loop doesn't run at all in a
      hidden tab). The Objective tips setting turns it off. Only real play: the home demo, previews and bot runs never
      stop for it, and the sim doesn't know about it: the rewind puts back states recorded during the run (G.hist).
      G.tip: false, "note" (frozen, note up) or "rewind". */
@@ -593,7 +593,7 @@
     return tipAt;
   }
   /* would this run stop for the tip? (beginRun records the run's states only then) */
-  function tipPending() { return G.n === TIP.lv && !S.tips[TIP.lv] && S.objective && !G.bot && !!tipSpot(); }
+  function tipPending() { return G.n === TIP.lv && !G.tipDone && S.objective && !G.bot && !!tipSpot(); }
   function tipDue(st) { return !G.tip && G.mode === "play" && !st.dead && tipPending() && !!G.hist && st.tick >= tipAt.tick; }
   const tipEl = $("#tipNote"), tipNum = $("#tipNum"), tipArc = $("#tipArc"), rwEl = $("#rewindFx");
   let tipLeft = 0, rwT = 0, winFocus = true;
@@ -627,7 +627,7 @@
     if (G.tip !== "note") return;
     if (document.activeElement && tipEl.contains(document.activeElement)) document.activeElement.blur();
     tipEl.classList.remove("show"); G.mark = null; dropInput();
-    S.tips[TIP.lv] = true; saveState();
+    G.tipDone = true;   /* this run only: the next run shows it again */
     G.tip = "rewind"; rwT = 0; G.rw = { from: G.st.tick, to: tipAt.back };
     document.body.classList.add("rewinding"); rwEl.classList.add("on");
     /* the song stops; a tape whirr plays over the rewind (the audio has to run for it) */
