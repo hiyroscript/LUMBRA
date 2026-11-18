@@ -50,18 +50,6 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;tou
 #home .rail{box-shadow:0 0 0 3px #fff;background:var(--paper-3)}
 #home .pulse i{box-shadow:0 0 0 4px #fff}
 
-/* splash */
-#splash{background:#000;color:#EDEFF2;justify-content:space-between;z-index:60}
-#splash .mid{flex:1;display:flex;align-items:center;justify-content:center;width:100%}
-.splash-title{font-size:clamp(44px,min(15vw,22vh),170px);font-weight:700;letter-spacing:-.045em;line-height:.84;text-transform:uppercase;text-align:center}
-.splash-title span,.title span{display:inline-block;animation:letterIn .55s cubic-bezier(.2,.9,.2,1) both}
-#splash .credit{font-family:var(--mono);font-size:clamp(10px,2.9vw,13px);letter-spacing:.32em;
-  text-transform:lowercase;opacity:0;animation:creditIn .8s .45s ease forwards;text-align:center;
-  padding-bottom:max(6px,env(safe-area-inset-bottom))}
-@keyframes creditIn{to{opacity:.85}}
-#splash.out{animation:splashOut .45s ease forwards}
-@keyframes splashOut{to{opacity:0}}
-
 /* home */
 #home .mid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
   width:100%;min-height:0;gap:0;padding:10px 0}
@@ -69,6 +57,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;tou
   text-transform:uppercase;text-align:center;color:var(--fg);margin-top:clamp(6px,1.2vh,12px);max-width:13ch;text-wrap:balance;
   -webkit-text-stroke:.16em #fff;paint-order:stroke fill;
   text-shadow:0 0 14px #fff,0 0 28px #fff}
+.title span{display:inline-block;animation:letterIn .55s cubic-bezier(.2,.9,.2,1) both}
 @keyframes letterIn{from{opacity:0;transform:translateY(16px) scaleY(.92)}to{opacity:1;transform:none}}
 .play-row{margin-top:clamp(14px,3.2vh,40px);display:flex;align-items:center;gap:clamp(18px,5vw,40px)}
 .pulse{position:relative;width:clamp(64px,12vh,96px);height:clamp(64px,12vh,96px);border-radius:50%;
@@ -76,8 +65,12 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;tou
 .pulse:active{transform:scale(.92)}
 .pulse i{position:absolute;inset:0;border-radius:50%;background:var(--ink);animation:breathe 1.6s ease-in-out infinite}
 .pulse b{position:absolute;inset:0;border-radius:50%;border:2px solid var(--ink);animation:halo 1.6s ease-out infinite}
+/* play icon: a white triangle about a third of the button tall, nudged right ~8% of its own width (margin-left
+   4.4% of the button shifts a centred grid item by 2.2%) so it looks centred; breathes in phase with the disc */
+.pulse u{position:relative;z-index:1;width:27.7%;height:32%;margin-left:4.4%;background:#fff;clip-path:polygon(0 0,100% 50%,0 100%);
+  pointer-events:none;animation:breathe 1.6s ease-in-out infinite}
 .pulse.locked i{background:var(--paper-3);animation:none;transform:scale(.86)}
-.pulse.locked b{display:none}
+.pulse.locked b,.pulse.locked u{display:none}
 .pulse.locked::after{content:"";position:relative;width:26%;height:22%;border-radius:3px;background:var(--ink);
   box-shadow:0 0 0 0 var(--ink);margin-top:14%}
 .pulse.locked::before{content:"";position:absolute;width:16%;height:18%;border:3px solid var(--ink);border-bottom:none;
@@ -308,7 +301,7 @@ body.rewinding #cv{filter:sepia(.75) saturate(1.25) contrast(1.08);animation:rwJ
   .card .pv{width:176px;margin-bottom:10px}
 }
 @media (prefers-reduced-motion:reduce){
-  .pulse i,.pulse b{animation:none}
+  .pulse i,.pulse b,.pulse u{animation:none}
   .col.more .scroll-cue{animation:none}
 }
 
