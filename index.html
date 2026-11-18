@@ -25,8 +25,9 @@
 <section id="home" class="screen">
   <div class="col">
     <header class="bar">
-      <span class="tag">shadow skirr &nbsp;·&nbsp; hiyroscript</span>
+      <span class="tag">hiyroscript</span>
       <nav>
+        <button class="chip" data-go="howto">how to play</button>
         <button class="chip" data-go="settings">settings</button>
       </nav>
     </header>
@@ -50,6 +51,34 @@
   </div>
 </section>
 
+<section id="howto" class="screen paper">
+  <div class="col">
+    <div class="panel-head">
+      <h2 class="panel-title">How to play</h2>
+      <button class="chip" data-go="home">close</button>
+    </div>
+    <div class="panel-body">
+      <div class="demo-shell">
+        <canvas id="demoCv" role="img" aria-label="The move in the game"></canvas>
+        <div>
+          <span class="tag" id="demoKind"></span>
+          <div class="demo-name" id="demoName"></div>
+          <div class="demo-meta" id="demoMeta"></div>
+          <p class="demo-desc" id="demoDesc"></p>
+        </div>
+        <div class="demo-nav">
+          <button class="chip" id="demoPrev">back</button>
+          <button class="chip solid" id="demoNext">next</button>
+          <div class="dot-row" id="demoDots"></div>
+        </div>
+      </div>
+      <div class="legend" id="legend"></div>
+      <p class="demo-desc" id="howtoFoot"></p>
+    </div>
+    <div class="scroll-cue" aria-hidden="true">▾</div>
+  </div>
+</section>
+
 <section id="settings" class="screen paper">
   <div class="col">
     <div class="panel-head">
@@ -58,7 +87,11 @@
     </div>
     <div class="panel-body">
       <div class="set-row">
-        <div class="lbl"><b>Music</b><span>The only sound in the game.</span></div>
+        <div class="lbl"><b>Sound effects</b><span>A short sound when you crash.</span></div>
+        <div class="set-ctl"><button class="sw" id="sfxSw" aria-pressed="true" aria-label="Sound effects"></button></div>
+      </div>
+      <div class="set-row">
+        <div class="lbl"><b>Music</b><span>The soundtrack of each level.</span></div>
         <div class="set-ctl"><input type="range" id="volRange" min="0" max="100" step="1" aria-label="Music volume"><output id="volOut">80</output></div>
       </div>
       <div class="set-row">

@@ -45,8 +45,8 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;tou
 .chip.solid:hover{opacity:.88;background:var(--fg)}
 .chip.danger{color:var(--fg);border:1px dashed rgba(10,10,16,.6)}
 #home .chip,#home .arrow{background:#fff}
-#home .tag{background:#fff;padding:6px 11px;border-radius:100px;color:var(--dim)}
-#home header .tag{min-width:0;overflow:hidden;text-overflow:ellipsis}   /* long brand tag truncates instead of pushing the settings chip off-screen */
+/* white pills for the tags over the backdrop; the header's "hiyroscript" stays plain .tag text, as in vl */
+#home main .tag,#home footer .tag{background:#fff;padding:6px 11px;border-radius:100px;color:var(--dim)}
 #home .rail{box-shadow:0 0 0 3px #fff;background:var(--paper-3)}
 #home .pulse i{box-shadow:0 0 0 4px #fff}
 
@@ -146,6 +146,35 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border:none;border-ra
   .set-ctl{justify-content:flex-end}
   input[type=range]{width:min(210px,58vw)}
 }
+/* how to play (ported from vl): a live demo carousel, the hazard colour legend and the basics in one paragraph */
+.demo-shell{display:flex;flex-direction:column;gap:clamp(10px,1.8vh,16px)}
+/* landscape (11/7) like the game's preview renderer; max-width also follows max-height, so a short screen
+   narrows the canvas instead of stretching it */
+#demoCv{width:100%;max-width:min(520px,calc(min(46vh,420px) * 11 / 7));aspect-ratio:11/7;max-height:min(46vh,420px);border-radius:16px;
+  background:#0E0E16;display:block;border:1px solid var(--line);margin:0 auto}
+#demoKind{display:block;margin-bottom:6px}
+.demo-name{font-size:clamp(19px,4.4vw,28px);font-weight:700;letter-spacing:-.02em;color:var(--fg)}
+.demo-meta{display:flex;align-items:center;gap:7px;min-height:13px;margin-top:6px}
+.demo-meta s{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.demo-desc{color:var(--dim);font-size:clamp(13px,2.4vw,15px);line-height:1.55;max-width:58ch}
+#demoDesc{min-height:3.1em;margin-top:8px}
+.demo-nav{display:flex;align-items:center;gap:8px}
+.dot-row{display:flex;gap:5px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+.dot-row i{width:6px;height:6px;border-radius:50%;background:var(--line);transition:background .2s,transform .2s}
+.dot-row i.on{background:var(--fg);transform:scale(1.35)}
+.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 18px;margin:clamp(18px,3vh,26px) 0}
+.legend div{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--faint)}
+.legend s{width:11px;height:11px;border-radius:50%;flex:0 0 auto}
+/* scroll affordance (vl): a fade and a bobbing ▾ while the panel has more below. Only How to play has the cue. */
+#howto .col::after{content:"";position:absolute;left:0;right:6px;bottom:0;height:52px;pointer-events:none;z-index:1;
+  background:linear-gradient(to top,var(--bg) 12%,transparent);opacity:0;transition:opacity .22s}
+#howto .col.more::after{opacity:1}
+.scroll-cue{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);pointer-events:none;z-index:2;
+  font-family:var(--mono);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);
+  opacity:0;transition:opacity .22s;display:flex;align-items:center;gap:6px}
+.col.more .scroll-cue{opacity:1;animation:cueBob 1.8s ease-in-out infinite}
+@keyframes cueBob{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,3px)}}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(54px,1fr));gap:8px}
 .cell{aspect-ratio:1;border-radius:12px;border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
   font-family:var(--mono);font-size:14px;color:var(--fg);transition:transform .12s,background .16s,border-color .16s}
@@ -244,5 +273,6 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border:none;border-ra
 }
 @media (prefers-reduced-motion:reduce){
   .pulse i,.pulse b{animation:none}
+  .col.more .scroll-cue{animation:none}
 }
 

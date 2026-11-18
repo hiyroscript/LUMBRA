@@ -4,7 +4,8 @@
    from that level's spec (tempo, key, scale, progressions, kit, bass, lead,
    arp, pad) and from its chart: the lead line plays on exactly the half-beats
    where the level asks for an action, so the song and the level are one thing.
-   There are no sound effects anywhere: this file is the only source of audio.
+   This file is the only source of audio. Besides the music it has one sound
+   effect, the death sound (MUSIC.sfx.die), on its own output.
    ========================================================================== */
 const MUSIC = (function () {
   "use strict";
@@ -103,6 +104,9 @@ const MUSIC = (function () {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return false;
     try { build(new AC({ latencyHint: "interactive" })); } catch (e) { try { build(new AC()); } catch (e2) { return false; } }
+    /* the effects output exists from the start: a brand-new compressor is close to silent for its first moments
+       (Chrome), which would swallow the first death sound */
+    try { fxOut(); } catch (e) {}
     return true;
   }
   function newBus() {
@@ -365,6 +369,50 @@ const MUSIC = (function () {
     const lat = Math.min(0.3, ctx.outputLatency || ctx.baseLatency || 0);
     return (ctx.currentTime - lat - t0) / song.spb;
   }
+  /* ---------------- sound effects ----------------
+     The death sound, hiyroscript/vl's "miss": a sawtooth falling 150 -> 48 Hz through a lowpass, over white noise
+     whose lowpass closes 900 -> 120 Hz, about 0.35 s in all. It goes through its own compressor and gain straight to
+     the destination (vl: threshold -14, ratio 6, attack 3 ms, then 0.9), never through `master` or a song bus, so
+     the music volume and the fade-out MUSIC.stop starts at the same moment don't touch it. Built by init() on the live
+     context only; the offline render never builds or plays it. */
+  let fx = null;
+  function fxOut() {
+    if (fx && fx.ctx === ctx) return fx;
+    const c = ctx.createDynamicsCompressor(), g = ctx.createGain();
+    c.threshold.value = -14; c.ratio.value = 6; c.attack.value = .003;
+    g.gain.value = .9; c.connect(g); g.connect(ctx.destination);
+    const len = Math.floor(ctx.sampleRate * .7), nb = ctx.createBuffer(1, len, ctx.sampleRate), d = nb.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    fx = { ctx: ctx, out: c, noise: nb };
+    return fx;
+  }
+  /* vl's tone: frequency f -> f2 (exponential) over d, gain 0.0001 -> g in 6 ms -> 0.0001 at t + d, optional lowpass */
+  function fxTone(t, o) {
+    const osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.type = o.type || "sine";
+    osc.frequency.setValueAtTime(o.f, t); osc.frequency.exponentialRampToValueAtTime(o.f2 || o.f, t + o.d);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(o.g, t + .006); g.gain.exponentialRampToValueAtTime(0.0001, t + o.d);
+    if (o.filter) { const fl = ctx.createBiquadFilter(); fl.type = "lowpass"; fl.frequency.value = o.filter; osc.connect(fl); fl.connect(g); }
+    else osc.connect(g);
+    g.connect(fx.out); osc.start(t); osc.stop(t + o.d + .03);
+  }
+  /* vl's noise: white noise through a lowpass (Q 1) closing f -> f2 over d, gain 0.0001 -> g in 4 ms -> 0.0001 at t + d */
+  function fxNoise(t, o) {
+    const s = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g = ctx.createGain();
+    s.buffer = fx.noise; fl.type = "lowpass"; fl.Q.value = 1;
+    fl.frequency.setValueAtTime(o.f, t); fl.frequency.exponentialRampToValueAtTime(o.f2, t + o.d);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(o.g, t + .004); g.gain.exponentialRampToValueAtTime(0.0001, t + o.d);
+    s.connect(fl); fl.connect(g); g.connect(fx.out); s.start(t); s.stop(t + o.d + .03);
+  }
+  const sfx = {
+    die: function () {
+      if (!ctx || offline || ctx.state !== "running") return;
+      fxOut(); const t = ctx.currentTime;
+      fxTone(t, { f: 150, f2: 48, d: .34, type: "sawtooth", g: .24, filter: 700 });
+      fxNoise(t, { f: 900, f2: 120, d: .3, g: .18 });
+    }
+  };
+
   /* Offline render, used by the test harness to check every track is audible and unclipped. */
   function renderStats(def, L, seconds) {
     const OC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
@@ -382,7 +430,7 @@ const MUSIC = (function () {
     });
   }
   return {
-    init: init, makeSong: makeSong, start: start, stop: stop, beat: beat, schedule: schedule, renderStats: renderStats,
+    init: init, makeSong: makeSong, start: start, stop: stop, beat: beat, schedule: schedule, renderStats: renderStats, sfx: sfx,
     get ctx() { return ctx; }, get song() { return song; }, get t0() { return t0; },
     setVol: function (v) { vol = v; if (master) master.gain.setTargetAtTime(v * .7, ctx.currentTime, .03); },
     resume: function () { if (ctx && ctx.state !== "running") return ctx.resume(); },

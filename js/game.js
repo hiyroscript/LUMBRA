@@ -1,6 +1,6 @@
 /* ---- game.js ---- */
 /* ============================================================================
-   GAME — state, clock, input, HUD, home screen, results, rebirth.
+   GAME — state, clock, input, HUD, home screen, How to play, results, rebirth.
    UI behaviour follows hiyroscript/vl (screens, cards, wipe, pause rules).
    ========================================================================== */
 (function () {
@@ -17,7 +17,7 @@
   /* ---------------- saved state ---------------- */
   /* optional save-key override (README: Builds); without it, the real key */
   const REAL_KEY = "shadowskirr.v1";
-  const KEY = (window.SHKR_DEV && window.SHKR_DEV.saveKey) || REAL_KEY, LEGACY_KEY = "lumbra.v1", DEFAULTS = { music: 0.8, shake: true, objective: true, sel: 1, unlocked: 1, rec: {} };
+  const KEY = (window.SHKR_DEV && window.SHKR_DEV.saveKey) || REAL_KEY, LEGACY_KEY = "lumbra.v1", DEFAULTS = { music: 0.8, sfx: true, shake: true, objective: true, sel: 1, unlocked: 1, rec: {} };
   let S = loadState();
   function loadState() {
     let raw = {}, str = null;
@@ -41,6 +41,7 @@
     o.unlocked = Math.max(1, Math.min(N, o.unlocked | 0 || 1)); o.sel = Math.max(1, Math.min(N, o.sel | 0 || 1));
     if (typeof o.rec !== "object" || !o.rec) o.rec = {};
     o.objective = o.objective !== false;   /* saves from before the setting existed still show the objective box */
+    o.sfx = o.sfx !== false;               /* ... and still get the death sound */
     return o;
   }
   function setS(obj) { S = checkState(obj || {}); return S; }
@@ -82,7 +83,7 @@
   const keys = { j: false, s: false, qj: false, qs: false };
 
   /* ---------------- screens ---------------- */
-  const SCREENS = ["splash", "home", "settings", "levels"];
+  const SCREENS = ["splash", "home", "howto", "settings", "levels"], PANELS = ["howto", "settings", "levels"];
   function show(id) {
     SCREENS.forEach(function (s) { const el = document.getElementById(s); el.classList.toggle("on", s === id); el.classList.remove("enter"); });
     const el = document.getElementById(id);
@@ -90,8 +91,20 @@
     if (id === "levels") paintLevels();
     if (id === "home") paintHome(true);
     if (id === "settings") paintSettings();
+    if (id === "howto") Demo.start(); else Demo.stop();
+    refreshScrollCue();
   }
+  function panelOn() { for (const id of PANELS) if (document.getElementById(id).classList.contains("on")) return id; return ""; }
   $$("[data-go]").forEach(function (b) { b.addEventListener("click", function () { show(b.dataset.go); }); });
+  /* scroll cue (vl): a panel whose body has more below gets .more, which shows a fade and a bobbing ▾ (How to play) */
+  function refreshScrollCue() {
+    $$(".screen .col").forEach(function (col) {
+      const body = col.querySelector(".panel-body");
+      if (!body) return;
+      col.classList.toggle("more", body.scrollHeight - body.scrollTop - body.clientHeight > 6);
+    });
+  }
+  $$(".panel-body").forEach(function (el) { el.addEventListener("scroll", refreshScrollCue, { passive: true }); });
 
   /* ---------------- cards ---------------- */
   const overlay = $("#overlay"), cardEl = $("#card");
@@ -206,10 +219,14 @@
   const vol = $("#volRange");
   vol.value = Math.round(S.music * 100); $("#volOut").textContent = vol.value;
   vol.addEventListener("input", function () { S.music = vol.value / 100; $("#volOut").textContent = vol.value; MUSIC.setVol(S.music); saveState(); });
-  const sw = $("#shakeSw"), osw = $("#objSw");
+  const fsw = $("#sfxSw"), sw = $("#shakeSw"), osw = $("#objSw");
   /* switch states follow S, which can change while playing ("Don't show again"), so they are synced whenever Settings opens */
-  function paintSettings() { sw.setAttribute("aria-pressed", S.shake ? "true" : "false"); osw.setAttribute("aria-pressed", S.objective ? "true" : "false"); }
+  function paintSettings() {
+    fsw.setAttribute("aria-pressed", S.sfx ? "true" : "false"); sw.setAttribute("aria-pressed", S.shake ? "true" : "false");
+    osw.setAttribute("aria-pressed", S.objective ? "true" : "false");
+  }
   paintSettings();
+  fsw.addEventListener("click", function () { S.sfx = !S.sfx; paintSettings(); saveState(); });
   sw.addEventListener("click", function () { S.shake = !S.shake; paintSettings(); saveState(); });
   osw.addEventListener("click", function () { S.objective = !S.objective; paintSettings(); saveState(); });
   $("#resetBtn").addEventListener("click", function () {
@@ -304,9 +321,11 @@
     showObjective(true);
   }
   /* the looping preview; returns the function that stops it. Its own sim state, clock and renderer: nothing here
-     touches the frozen game. */
-  function preview(cvs, D, def) {
-    const R = pvR || (pvR = RENDER.create({ w: 220, h: 140, dpr: 2, sc: 14, px: .3, gy: .84, top: 4 }));
+     touches the frozen game. opt (How to play only; a hazard card passes none): R, a renderer of its own instead of
+     the card's; keys, draw JUMP / ROLL over the canvas while the scripted input is held. */
+  function preview(cvs, D, def, opt) {
+    opt = opt || {};
+    const R = opt.R || pvR || (pvR = RENDER.create({ w: 220, h: 140, dpr: 2, sc: 14, px: .3, gy: .84, top: 4 }));
     const L = D.L || (D.L = SIM.compile({ n: 0, phr: { a: D.c }, form: "a", fix: [] }));
     const spb = 60 / Math.min(PV_BPM, def.mu[0]), o = { squash: 0 };
     let st = null, inp = null, loops = 0, t0 = 0, last = 0, restY = 0, snap = true, raf = 0;
@@ -328,6 +347,7 @@
       R.frame({ s: st, x: x, y: y, beat: beat, time: t, pulse: pulse, dead: false, squash: o.squash, restY: restY, snap: snap, thermal: thermal,
         demo: true, noShake: true }, dt);
       snap = false;
+      if (opt.keys) keyLabel(cvs, inp, beat, spb);
     }
     if (RM) { reset(0); draw(D.still, 0, 0); return null; }
     function tick(ts) {
@@ -340,6 +360,117 @@
     raf = requestAnimationFrame(tick);
     return function () { cancelAnimationFrame(raf); };
   }
+
+  /* ---------------- how to play ----------------
+     hiyroscript/vl's How to play screen: a carousel of pages, each with a live loop on #demoCv, a name and a line or
+     two of text. Every loop is a preview() like a new hazard card's: a tiny chart (same format as INTRO) played by the
+     real simulation with a scripted input, drawn by its own renderer in a level's theme. The basics and the plain
+     obstacles have their charts here; each hazard page reuses its INTRO entry (text and chart), so the screen and the
+     hazard cards always say the same thing. While a scripted input is held, JUMP or ROLL shows at the bottom of the
+     canvas. If you change how something works, check its page still plays out like INTRO (README: Development notes). */
+  const BASICS = "the basics", OBSTACLE = "obstacle";
+  const HOWTO = [
+    { kind: BASICS, name: "Jump", body: "Press jump to hop. You stay in the air for one beat, so jump with the music. Use it to clear spikes and gaps.",
+      c: "....^.........../................", in: [[[2, 2.15, 1]]], to: 4, still: 2.5 },
+    { kind: BASICS, name: "Roll", body: "Hold roll to curl into a ball and slide under things. You stay down as long as something is above you.",
+      c: "....-.........../................", in: [[[1.85, 2.95, 2]]], to: 4, still: 2.4 },
+    { kind: BASICS, name: "Dive", body: "Roll while you're in the air to drop down fast. It cuts a jump short.",
+      c: "....^.-........./................", in: [[[2, 2.15, 1], [2.6, 3.7, 2]]], to: 4.6, still: 2.75 },
+    { kind: OBSTACLE, name: "Spikes", body: "Spikes kill you if you touch them. Jump over them. Wide and tall spikes need a well-timed jump.",
+      c: "..^...M...I...../................", in: [[[1, 1.15, 1], [3, 3.15, 1], [5, 5.15, 1]]], to: 6.6, still: 3.5 },
+    { kind: OBSTACLE, name: "Pits", body: "A gap in the ground. Jump across. Falling in sends you back to the start.",
+      c: "...._...U......./................", in: [[[2, 2.15, 1], [4.3, 4.45, 1]]], to: 6.4, still: 4.9 },
+    { kind: OBSTACLE, name: "Bars", body: "A bar hanging just above the ground. Roll under it.",
+      c: "...-....-......./................", in: [[[1.4, 2.35, 2], [3.9, 4.85, 2]]], to: 6, still: 2 },
+    { kind: OBSTACLE, name: "Hanging walls", body: "A wall that hangs down to just above your head. Stay on the ground and don't jump.",
+      c: "...'..'..'....../................", in: [[]], to: 6, still: 2 },
+    { kind: OBSTACLE, name: "Steps", body: "The ground climbs and drops. Jump onto a step up. Running into its side will knock you out.",
+      c: "...+...#..v.V.../................", in: [[[1.5, 1.65, 1], [3.4, 3.55, 1]]], to: 7, still: 3.8 },
+    { kind: OBSTACLE, name: "Floating spike blocks", ob: "*", body: "Spikes floating at middle height. Roll under them, or jump early to clear them.",
+      c: "...*.....*....../................", in: [[[1.6, 2.3, 2], [4.5, 4.65, 1]]], to: 6.6, still: 5 },
+    { kind: OBSTACLE, name: "Spiked steps", ob: "%", body: "A step with spikes on top. Jump from further back so you land past the spikes.",
+      c: "...%...v.%..v.../................", in: [[[1.55, 1.7, 1], [4.55, 4.7, 1]]], to: 7, still: 2.1 },
+    { kind: OBSTACLE, name: "Low tunnels", ob: "=", body: "A long, low roof with spikes on it. Roll and keep rolling until you're out. You can't jump inside.",
+      c: "...=====......../................", in: [[[1.5, 4.4, 2]]], to: 5.8, still: 3 },
+    { kind: OBSTACLE, name: "Hurdles", ob: "&", body: "A spike, then a bar right after it. Jump the spike, then roll as soon as you land.",
+      c: "....&.........../................", in: [[[1.95, 2.1, 1], [2.92, 3.7, 2]]], to: 4.8, still: 3.2 },
+    { kind: OBSTACLE, name: "Crushers", ob: "|", body: "Heavy blocks that slam down and lift up with the beat. If it's down, jump over it. If it's up, stay on the ground and run under.",
+      c: "....|..|......../................", in: [[[2, 2.15, 1]]], to: 5.6, still: 2.5 },
+    { kind: OBSTACLE, name: "Rolling blades", ob: "@", body: "Saws rolling toward you along the ground. Jump them just as they reach you.",
+      c: "....@....@....../................", in: [[[2, 2.15, 1], [4.5, 4.65, 1]]], to: 6.4, still: 2.4 }
+  ];
+  /* the newer obstacles say which level brings them in (OBST); every page plays in a level's colours: the basics and
+     the first obstacles in level 1's, a newer obstacle or a hazard in its own level's */
+  HOWTO.forEach(function (p) { if (p.ob) for (const o of OBST) if (o.ch === p.ob) p.lv = o.lv; p.def = LEVELS[(p.lv || 1) - 1]; });
+  HAZ.forEach(function (h) { HOWTO.push({ kind: "hazard", name: h.name, body: INTRO[h.k].body, D: INTRO[h.k], h: h, lv: h.lv, def: LEVELS[h.lv - 1] }); });
+  /* JUMP / ROLL over the bottom centre of a How to play canvas (on the dark ground band). A tap stays up for at least
+     KEY_HOLD s so it can be read, but goes out KEY_GAP s before the next press, so every press shows on its own. */
+  const KEY_HOLD = 0.3, KEY_GAP = 0.09, KEY_FADE = 0.08, KEY_FONT = getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() || "monospace";
+  function keyLabel(cvs, inp, beat, spb) {
+    let v = 0, a = 0;
+    for (const q of inp) {
+      let end = q[0] + KEY_HOLD / spb;
+      for (const r of inp) if (r[0] > q[0]) end = Math.min(end, r[0] - KEY_GAP / spb);
+      end = Math.max(end, q[1]);
+      if (beat >= q[0] && beat < end) { v |= q[2]; a = Math.max(a, Math.min(1, (end - beat) * spb / KEY_FADE)); }
+    }
+    if (!v || !cvs.clientWidth) return;
+    const text = (v & 1 ? "jump" : "") + (v === 3 ? " + " : "") + (v & 2 ? "roll" : "");
+    const g = cvs.getContext("2d"), k = cvs.width / cvs.clientWidth, ls = 11 * .18 * k;
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = a;
+    g.font = "700 " + (11 * k).toFixed(2) + "px " + KEY_FONT; g.textAlign = "center"; g.textBaseline = "middle";
+    const spaced = "letterSpacing" in g;
+    if (spaced) g.letterSpacing = ls.toFixed(2) + "px";
+    const w = g.measureText(text.toUpperCase()).width + 18 * k, h = 21 * k, x = cvs.width / 2, y = cvs.height - 9 * k - h / 2;
+    /* a dark pill, invisible on the black ground and enough to read the label over a pit, where the pale sky shows */
+    g.fillStyle = "rgba(10,10,16,.5)"; g.beginPath();
+    if (g.roundRect) g.roundRect(x - w / 2, y - h / 2, w, h, h / 2); else g.rect(x - w / 2, y - h / 2, w, h);
+    g.fill();
+    g.fillStyle = "rgba(237,239,242,.75)"; g.fillText(text.toUpperCase(), x + (spaced ? ls / 2 : 0), y);   /* spacing trails the last letter */
+    g.restore();
+  }
+  const Demo = (function () {
+    const cv = $("#demoCv"), prevB = $("#demoPrev"), nextB = $("#demoNext"), dots = $("#demoDots");
+    /* the hazard cards' preview geometry, at a sharper resolution chosen for the canvas's size on screen */
+    const fit = { w: 220, h: 140, dpr: 2, sc: 14, px: .3, gy: .84, top: 4 };
+    let R = null, i = 0, halt = null, on = false;
+    dots.innerHTML = HOWTO.map(function () { return "<i></i>"; }).join("");
+    $("#legend").innerHTML = HAZ.map(function (h) { return '<div><s style="background:' + h.col + '"></s><span>' + h.name + "</span></div>"; }).join("");
+    $("#howtoFoot").textContent = "Run to the end of the level. Everything moves to the music, so the beat tells you when to act. Touch anything deadly or fall into a pit and you start the level again. Jump: Space, ↑ or W, left click, or tap the right side of the screen. Roll: ↓ or S, right click, or hold the left side of the screen.";
+    function paint() {
+      const p = HOWTO[i];
+      $("#demoKind").textContent = p.kind; $("#demoName").textContent = p.name; $("#demoDesc").textContent = p.body;
+      $("#demoMeta").innerHTML = p.lv ? (p.h ? '<s style="background:' + p.h.col + '"></s>' : "") + '<span class="tag">from level ' + pad2(p.lv) + "</span>" : "";
+      cv.setAttribute("aria-label", p.name + " in the game");
+      if (i === 0 && document.activeElement === prevB) nextB.focus();
+      prevB.style.display = i === 0 ? "none" : "";
+      nextB.textContent = i === HOWTO.length - 1 ? "start over" : "next";
+      $$("i", dots).forEach(function (d, k) { d.classList.toggle("on", k === i); });
+    }
+    /* one loop at a time: the page's loop starts over on every start and every page change */
+    function halt0() { if (halt) { const f = halt; halt = null; f(); } }
+    function play() {
+      halt0();
+      if (!R) R = RENDER.create(fit);
+      fit.dpr = Math.max(2, Math.min(4, Math.ceil((cv.clientWidth || fit.w) * (window.devicePixelRatio || 1) / fit.w)));
+      const p = HOWTO[i];
+      halt = preview(cv, p.D || p, p.def, { R: R, keys: true });
+    }
+    function go(n) { i = (n + HOWTO.length) % HOWTO.length; paint(); if (on) play(); refreshScrollCue(); }
+    /* back stops at the first page (it is hidden there); next on the last page is "start over" */
+    function prev() { if (i > 0) go(i - 1); }
+    function next() { go(i + 1); }
+    prevB.addEventListener("click", prev);
+    nextB.addEventListener("click", next);
+    /* taps on the demo are never game input (the game canvas sits under the panel anyway) */
+    cv.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+    paint();
+    return {
+      start: function () { on = true; paint(); play(); },
+      stop: function () { on = false; halt0(); },
+      prev: prev, next: next
+    };
+  })();
 
   /* ---------------- play ---------------- */
   function paintHud() {
@@ -407,6 +538,7 @@
           if (main && G.mode === "play") {
             R.burst(x, y, fl, fb); if (!S.shake) R.shake(0);
             G.mode = "dead"; G.deadAt = now(); MUSIC.stop(0.14);
+            if (S.sfx) MUSIC.sfx.die();   /* its own output: the music's fade above doesn't cut it */
           }
           break;
       }
@@ -464,7 +596,8 @@
   document.addEventListener("keydown", audioGesture, { capture: true });
   window.addEventListener("keydown", function (e) {
     const c = e.code;
-    if (c === "Escape") { if (G.mode === "play" && !G.paused) pauseGame(); else if (G.paused) resumeGame(); return; }
+    /* Esc: pause / resume in a run; on a panel (How to play, Settings, Levels) with no card open, back home */
+    if (c === "Escape") { if (G.mode === "play" && !G.paused) pauseGame(); else if (G.paused) resumeGame(); else if (!G.cardUp && panelOn()) show("home"); return; }
     if (c === "Space" && e.target === obChk) return;   /* the keyboard is on "Don't show again": Space ticks it */
     if (G.cardUp) { if (c === "Enter" && cardActs[0]) { e.preventDefault(); cardActs[0].fn(); } return; }
     if (G.mode === "play") {
@@ -473,6 +606,8 @@
     } else if (G.mode === "home" && $("#home").classList.contains("on")) {
       if (c === "Enter" || c === "Space") { e.preventDefault(); launch(); }
       else if (c === "ArrowLeft") browse(-1); else if (c === "ArrowRight") browse(1);
+    } else if (panelOn() === "howto") {
+      if (c === "ArrowLeft") Demo.prev(); else if (c === "ArrowRight") Demo.next();
     }
   });
   window.addEventListener("keyup", function (e) {
@@ -541,7 +676,8 @@
   /* ---------------- boot ---------------- */
   RENDER.resize(cv);
   let rz = 0;
-  const onResize = function () { clearTimeout(rz); rz = setTimeout(function () { RENDER.resize(); G.snap = true; }, 120); };
+  const onResize = function () { clearTimeout(rz); rz = setTimeout(function () { RENDER.resize(); G.snap = true; refreshScrollCue(); }, 120); };
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(refreshScrollCue);
   window.addEventListener("resize", onResize);
   window.addEventListener("orientationchange", function () { setTimeout(onResize, 160); });
   setLetters($("#splashTitle"), "SHADOW SKIRR");
