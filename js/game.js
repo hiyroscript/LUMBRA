@@ -78,16 +78,16 @@
     }
   };
 
-  const G = { mode: "splash", paused: false, n: 1, def: null, L: null, song: null, st: null, tryN: 1, session: 0, beat: 0, beat0: 0, spb: 0.5,
+  const G = { mode: "home", paused: false, n: 1, def: null, L: null, song: null, st: null, tryN: 1, session: 0, beat: 0, beat0: 0, spb: 0.5,
     deadAt: 0, wonAt: 0, squash: 0, restY: 0, snap: true, cardUp: false, pauseT: 0, tip: false, tipDone: false, mark: null, hist: null, rw: null };
   const keys = { j: false, s: false, qj: false, qs: false };
 
   /* ---------------- screens ---------------- */
-  const SCREENS = ["splash", "home", "howto", "settings", "levels"], PANELS = ["howto", "settings", "levels"];
+  const SCREENS = ["home", "howto", "settings", "levels"], PANELS = ["howto", "settings", "levels"];
   function show(id) {
     SCREENS.forEach(function (s) { const el = document.getElementById(s); el.classList.toggle("on", s === id); el.classList.remove("enter"); });
     const el = document.getElementById(id);
-    if (el && id !== "splash") { void el.offsetWidth; el.classList.add("enter"); }
+    if (el) { void el.offsetWidth; el.classList.add("enter"); }
     if (id === "levels") paintLevels();
     if (id === "home") paintHome(true);
     if (id === "settings") paintSettings();
@@ -690,7 +690,16 @@
   function audioGesture() {
     if (!MUSIC.ctx) { if (!MUSIC.init()) return; MUSIC.setVol(S.music); }
     if (!G.paused) MUSIC.resume();
-    if (!audioOn) { audioOn = true; if (G.mode === "home") startHome(); }
+    if (!audioOn) { audioOn = true; if (G.mode === "home") Promise.resolve(MUSIC.resume()).then(homeMusic); }
+  }
+  /* the first gesture on home: once audio runs, start the home song at the attract demo's current beat (plus the
+     song's 0.1 s lead and the output latency), so the demo carries on where it is instead of jumping back to the start.
+     If that gesture launched a level (or anything else left home) first, nothing starts. */
+  function homeMusic() {
+    const c = MUSIC.ctx;
+    if (G.mode !== "home" || !c || MUSIC.song) return;
+    const lat = Math.min(0.3, c.outputLatency || c.baseLatency || 0);
+    homeSong = MUSIC.makeSong(HOME, homeL, true); MUSIC.start(homeSong, Math.max(0, clock.beat(G.spb)) + (0.1 + lat) / G.spb);
   }
   document.addEventListener("pointerdown", audioGesture, { capture: true });
   document.addEventListener("keydown", audioGesture, { capture: true });
@@ -736,7 +745,7 @@
   function loop(ts) {
     requestAnimationFrame(loop);
     const t = ts / 1000, dt = Math.min(0.05, Math.max(0.001, t - last)); last = t;
-    if (G.mode === "splash" || !G.st || !G.L) return;
+    if (!G.st || !G.L) return;
     if (G.mode === "intro" && !G.snap) return;   /* frozen behind a new hazard card: drawn once, and again after a resize */
     if (G.tip === "rewind") rewindStep(dt);
     const st = G.st, L = G.L;
@@ -786,16 +795,7 @@
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(refreshScrollCue);
   window.addEventListener("resize", onResize);
   window.addEventListener("orientationchange", function () { setTimeout(onResize, 160); });
-  setLetters($("#splashTitle"), "SHADOW SKIRR");
-  let splashDone = false;
-  function leaveSplash() {
-    if (splashDone) return; splashDone = true;
-    $("#splash").classList.add("out");
-    startHome();
-    setTimeout(function () { show("home"); }, 440);
-  }
-  setTimeout(leaveSplash, 1900);
-  $("#splash").addEventListener("pointerdown", function () { audioGesture(); leaveSplash(); });
+  startHome(); show("home");
   requestAnimationFrame(loop);
   window.__SHADOWSKIRR = { G: G, S: function () { return S; }, startLevel: startLevel, keys: keys, getL: getL,
     saveState: saveState, paintHome: paintHome, paintLevels: paintLevels, startHome: startHome, show: show,
